@@ -19,7 +19,7 @@ export default function Home() {
   const [locale, setLocale] = useState<"en" | "zh">("en");
   const zh = locale === "zh";
   const tr = (en: string, cn: string) => zh ? cn : en;
-  const workspaceUrl = "https://app.lumeword.com";
+  const loginUrl = "/login";
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,8 +40,8 @@ export default function Home() {
         </div>
         <div className="nav-actions">
           <div className="locale-switch" aria-label="Language"><button className={!zh ? "active" : ""} onClick={() => setLocale("en")}>EN</button><span>/</span><button className={zh ? "active" : ""} onClick={() => setLocale("zh")}>中文</button></div>
-          <a className="login-link" href={workspaceUrl}>{tr("Log in", "登录")}</a>
-          <a className="navcta" href="#access">{tr("Get early access", "申请内测")} <Arrow /></a>
+          <a className="login-link" href={loginUrl}>{tr("Log in", "登录")}</a>
+          <a className="navcta" href={loginUrl}>{tr("Get early access", "申请内测")} <Arrow /></a>
         </div>
       </nav>
 
@@ -50,7 +50,7 @@ export default function Home() {
         <h1>{tr("Build your company with", "和你的第一位 AI 员工")}<br />{tr("your first ", "一起")}<em>{tr("AI employee.", "建立公司。")}</em></h1>
         <p className="hero-copy">{tr("Atlas learns your product, finds your next growth move, and gets the work done—while you stay focused on building.", "Atlas 会学习你的产品、寻找下一个增长机会并完成工作，让你继续专注于产品本身。")}</p>
         <div className="hero-actions">
-          <a className="button dark" href="#access">{tr("Get early access", "申请内测")} <Arrow /></a>
+          <a className="button dark" href={loginUrl}>{tr("Get early access", "申请内测")} <Arrow /></a>
           <a className="button light" href="#how">{tr("See how Atlas works", "了解 Atlas 如何工作")} <span className="play">▶</span></a>
         </div>
 
@@ -116,7 +116,7 @@ export default function Home() {
       </section>
 
       <section className="public section">
-        <div className="wrap public-grid"><div><span className="section-no">05 — {tr("BUILD IN PUBLIC", "公开构建")}</span><h2>{tr("Watch Atlas learn", "看 Atlas 学会")}<br />{tr("to grow itself.", "推广它自己。")}</h2><p>{tr("Atlas's first company is LumeWord. We're sharing the experiments, decisions, wins, and failures as our first AI employee builds its own path to market.", "Atlas 服务的第一家公司就是 LumeWord。我们会公开分享这位 AI 员工探索市场过程中的实验、决策、成功与失败。")}</p><a href="#access">{tr("Follow the journey", "关注构建过程")} <Arrow diagonal /></a></div><div className="public-feed"><div className="feed-head"><span><Mark /> {tr("Atlas activity", "Atlas 动态")}</span><span className="live">● {tr("LIVE", "实时")}</span></div><div className="feed-item"><span>10:42</span><div><b>{tr("Identified a new distribution channel", "发现新的分发渠道")}</b><p>{tr("Developer tool directories show 2.4× higher conversion for AI infrastructure products.", "开发者工具目录为 AI 基础设施产品带来了 2.4 倍的转化。")}</p></div></div><div className="feed-item"><span>09:18</span><div><b>{tr("Published founder insight #14", "发布创始人洞察 #14")}</b><p>{tr("“Your AI product doesn't need more features. It needs a sharper story.”", "“你的 AI 产品不需要更多功能，它需要一个更清晰的故事。”")}</p><small>↗ 4.8k {tr("impressions", "曝光")} &nbsp; · &nbsp; 126 {tr("engagements", "互动")}</small></div></div><div className="feed-item"><span>{tr("YESTERDAY", "昨天")}</span><div><b>{tr("Completed weekly growth review", "完成每周增长复盘")}</b><p>{tr("3 learnings added to company memory.", "3 条新经验已写入公司记忆。")}</p></div></div></div></div>
+        <div className="wrap public-grid"><div><span className="section-no">05 — {tr("BUILD IN PUBLIC", "公开构建")}</span><h2>{tr("Watch Atlas learn", "看 Atlas 学会")}<br />{tr("to grow itself.", "推广它自己。")}</h2><p>{tr("Atlas's first company is LumeWord. We're sharing the experiments, decisions, wins, and failures as our first AI employee builds its own path to market.", "Atlas 服务的第一家公司就是 LumeWord。我们会公开分享这位 AI 员工探索市场过程中的实验、决策、成功与失败。")}</p><a href={loginUrl}>{tr("Follow the journey", "关注构建过程")} <Arrow diagonal /></a></div><div className="public-feed"><div className="feed-head"><span><Mark /> {tr("Atlas activity", "Atlas 动态")}</span><span className="live">● {tr("LIVE", "实时")}</span></div><div className="feed-item"><span>10:42</span><div><b>{tr("Identified a new distribution channel", "发现新的分发渠道")}</b><p>{tr("Developer tool directories show 2.4× higher conversion for AI infrastructure products.", "开发者工具目录为 AI 基础设施产品带来了 2.4 倍的转化。")}</p></div></div><div className="feed-item"><span>09:18</span><div><b>{tr("Published founder insight #14", "发布创始人洞察 #14")}</b><p>{tr("“Your AI product doesn't need more features. It needs a sharper story.”", "“你的 AI 产品不需要更多功能，它需要一个更清晰的故事。”")}</p><small>↗ 4.8k {tr("impressions", "曝光")} &nbsp; · &nbsp; 126 {tr("engagements", "互动")}</small></div></div><div className="feed-item"><span>{tr("YESTERDAY", "昨天")}</span><div><b>{tr("Completed weekly growth review", "完成每周增长复盘")}</b><p>{tr("3 learnings added to company memory.", "3 条新经验已写入公司记忆。")}</p></div></div></div></div>
       </section>
 
       <section className="access section wrap" id="access">
@@ -126,7 +126,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="wrap"><a className="brand" href="#top"><Mark /><span>LumeWord</span></a><p>{tr("Building autonomous AI companies.", "构建自主运行的 AI 公司。")}</p><div><a href="#atlas">Atlas</a><a href="#story">{tr("About", "关于")}</a><a href="#access">X / Twitter ↗</a></div><small>© 2026 LumeWord, Inc.</small></footer>
+      <footer className="wrap"><a className="brand" href="#top"><Mark /><span>LumeWord</span></a><p>{tr("Building autonomous AI companies.", "构建自主运行的 AI 公司。")}</p><div><a href="#atlas">Atlas</a><a href="#story">{tr("About", "关于")}</a><a href={loginUrl}>X / Twitter ↗</a></div><small>© 2026 LumeWord, Inc.</small></footer>
     </main>
   );
 }

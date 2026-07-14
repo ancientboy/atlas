@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { atlasV2Seed, type Approval, type AtlasV2Data, type Opportunity } from "../lib/atlas-v2-data";
 
 type Locale = "zh" | "en";
@@ -27,39 +28,27 @@ function statusText(status: string, t: typeof copy.zh) {
 }
 
 export function AtlasDashboard() {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
   const [locale, setLocale] = useState<Locale>(() => { if (typeof window === "undefined") return "zh"; const saved = window.localStorage.getItem("atlas-locale"); return saved === "zh" || saved === "en" ? saved : "zh"; });
   const [view, setView] = useState<View>("today");
   const [data, setData] = useState<AtlasV2Data>({ ...atlasV2Seed, metrics: { visits: 1240, signups: 68, paid: 5, conversion: 5.5, yesterdayCompleted: 6 } });
   const [selectedApproval, setSelectedApproval] = useState<Approval | null>(null);
   const [notice, setNotice] = useState("");
-  const [onboarding, setOnboarding] = useState({ name: "", url: "", description: "", growthGoal: "" });
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState("");
   const t = copy[locale];
 
   useEffect(() => { window.localStorage.setItem("atlas-locale", locale); }, [locale]);
-  useEffect(() => { fetch("/api/atlas-v2").then((r) => r.ok ? r.json() : Promise.reject()).then(setData).catch(() => undefined); }, []);
+  useEffect(() => { fetch("/api/atlas-v2").then((r) => { if (r.status === 401) { router.replace("/login?return_to=/app"); return Promise.reject(); } return r.ok ? r.json() : Promise.reject(); }).then((payload) => { setData(payload); if (!payload.product || payload.product.analysisStatus !== "completed") router.replace("/onboarding"); }).catch(() => undefined).finally(() => setIsLoading(false)); }, [router]);
 
   const pendingApprovals = data.approvals.filter((item) => item.status === "pending");
   const todayTasks = data.tasks.filter((item) => ["waiting_approval", "queued", "approved"].includes(item.status)).slice(0, 3);
-
-  async function submitOnboarding(event: React.FormEvent) {
-    event.preventDefault();
-    setIsAnalyzing(true);
-    setAnalysisError("");
-    const response = await fetch("/api/atlas-v2", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "onboard", product: onboarding }) });
-    const payload = await response.json();
-    setIsAnalyzing(false);
-    if (response.ok) { setData(payload); setView("today"); setNotice(locale === "zh" ? "产品分析完成，工作台已更新。" : "Product analysis completed. Workspace updated."); setTimeout(() => setNotice(""), 3000); }
-    else setAnalysisError(payload.error || t.analysisError);
-  }
 
   async function mutate(action: string, id: number, message: string) {
     const response = await fetch("/api/atlas-v2", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, id }) });
     if (response.ok) { setData(await response.json()); setSelectedApproval(null); setNotice(message); setTimeout(() => setNotice(""), 2600); }
   }
 
-  if (!data.product || data.product.analysisStatus === "failed") return <div className="v2-shell onboarding-shell" lang={locale === "zh" ? "zh-CN" : "en"}><main className="onboarding-card"><div className="v2-brand"><span>▲</span><div><strong>ATLAS</strong><small>LUMEWORD AI WORKSPACE</small></div></div><p>{t.onboardingLead}</p><h1>{t.onboardingTitle}</h1><form onSubmit={submitOnboarding}><label>{t.productName}<input required value={onboarding.name} onChange={(e) => setOnboarding({ ...onboarding, name: e.target.value })} placeholder="LumeWord" /></label><label>{t.productUrl}<input required type="url" value={onboarding.url} onChange={(e) => setOnboarding({ ...onboarding, url: e.target.value })} placeholder="https://atlas.lumeword.com" /></label><label>{t.productIntro}<textarea value={onboarding.description} onChange={(e) => setOnboarding({ ...onboarding, description: e.target.value })} /></label><label>{t.growthGoal}<input value={onboarding.growthGoal} onChange={(e) => setOnboarding({ ...onboarding, growthGoal: e.target.value })} /></label><button disabled={isAnalyzing}>{isAnalyzing ? t.analyzing : t.startAnalysis}</button>{analysisError && <strong className="onboarding-error">{t.analysisError}: {analysisError}</strong>}</form><div className="language-switch"><button className={locale === "zh" ? "on" : ""} onClick={() => setLocale("zh")}>中文</button><button className={locale === "en" ? "on" : ""} onClick={() => setLocale("en")}>EN</button></div></main></div>;
+  if (isLoading || !data.product || data.product.analysisStatus !== "completed") return <div className="v2-shell onboarding-shell"><main className="onboarding-card"><div className="v2-brand"><span>▲</span><div><strong>ATLAS</strong><small>LUMEWORD AI WORKSPACE</small></div></div><p>{locale === "zh" ? "正在打开你的工作台…" : "Opening your workspace…"}</p></main></div>;
 
   return <div className="v2-shell" lang={locale === "zh" ? "zh-CN" : "en"}>
     <aside className="v2-sidebar">

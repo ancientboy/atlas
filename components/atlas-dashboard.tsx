@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { atlasV2Seed, type Approval, type AtlasV2Data, type Opportunity } from "../lib/atlas-v2-data";
+import { workspaceDestination, workspaceErrorMessage } from "../lib/route-state";
 
 type Locale = "zh" | "en";
 type View = "today" | "approvals" | "activity" | "opportunities" | "memory" | "agents" | "connections";
@@ -26,51 +28,60 @@ function statusText(status: string, t: typeof copy.zh) {
   return map[status] ?? status;
 }
 
-export function AtlasDashboard() {
+export function AtlasDashboard({ user }: { user?: { displayName: string; email: string } }) {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [locale, setLocale] = useState<Locale>(() => { if (typeof window === "undefined") return "zh"; const saved = window.localStorage.getItem("atlas-locale"); return saved === "zh" || saved === "en" ? saved : "zh"; });
   const [view, setView] = useState<View>("today");
   const [data, setData] = useState<AtlasV2Data>({ ...atlasV2Seed, metrics: { visits: 1240, signups: 68, paid: 5, conversion: 5.5, yesterdayCompleted: 6 } });
   const [selectedApproval, setSelectedApproval] = useState<Approval | null>(null);
   const [notice, setNotice] = useState("");
-  const [onboarding, setOnboarding] = useState({ name: "", url: "", description: "", growthGoal: "" });
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState("");
   const t = copy[locale];
 
   useEffect(() => { window.localStorage.setItem("atlas-locale", locale); }, [locale]);
-  useEffect(() => { fetch("/api/atlas-v2").then((r) => r.ok ? r.json() : Promise.reject()).then(setData).catch(() => undefined); }, []);
+  async function loadWorkspace() {
+    setIsLoading(true);
+    setLoadError("");
+    try {
+      const response = await fetch("/api/atlas-v2");
+      if (response.status === 401) { router.replace("/login?return_to=/app"); return; }
+      if (!response.ok) throw new Error(workspaceErrorMessage(locale));
+      const payload = await response.json();
+      setData(payload);
+      const destination = workspaceDestination(payload); if (destination) router.replace(destination);
+    } catch {
+      setLoadError(workspaceErrorMessage(locale));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  useEffect(() => { void loadWorkspace(); }, [router]);
 
   const pendingApprovals = data.approvals.filter((item) => item.status === "pending");
   const todayTasks = data.tasks.filter((item) => ["waiting_approval", "queued", "approved"].includes(item.status)).slice(0, 3);
-
-  async function submitOnboarding(event: React.FormEvent) {
-    event.preventDefault();
-    setIsAnalyzing(true);
-    setAnalysisError("");
-    const response = await fetch("/api/atlas-v2", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "onboard", product: onboarding }) });
-    const payload = await response.json();
-    setIsAnalyzing(false);
-    if (response.ok) { setData(payload); setView("today"); setNotice(locale === "zh" ? "产品分析完成，工作台已更新。" : "Product analysis completed. Workspace updated."); setTimeout(() => setNotice(""), 3000); }
-    else setAnalysisError(payload.error || t.analysisError);
-  }
 
   async function mutate(action: string, id: number, message: string) {
     const response = await fetch("/api/atlas-v2", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, id }) });
     if (response.ok) { setData(await response.json()); setSelectedApproval(null); setNotice(message); setTimeout(() => setNotice(""), 2600); }
   }
 
-  if (!data.product || data.product.analysisStatus === "failed") return <div className="v2-shell onboarding-shell" lang={locale === "zh" ? "zh-CN" : "en"}><main className="onboarding-card"><div className="v2-brand"><span>▲</span><div><strong>ATLAS</strong><small>LUMEWORD AI WORKSPACE</small></div></div><p>{t.onboardingLead}</p><h1>{t.onboardingTitle}</h1><form onSubmit={submitOnboarding}><label>{t.productName}<input required value={onboarding.name} onChange={(e) => setOnboarding({ ...onboarding, name: e.target.value })} placeholder="LumeWord" /></label><label>{t.productUrl}<input required type="url" value={onboarding.url} onChange={(e) => setOnboarding({ ...onboarding, url: e.target.value })} placeholder="https://atlas.lumeword.com" /></label><label>{t.productIntro}<textarea value={onboarding.description} onChange={(e) => setOnboarding({ ...onboarding, description: e.target.value })} /></label><label>{t.growthGoal}<input value={onboarding.growthGoal} onChange={(e) => setOnboarding({ ...onboarding, growthGoal: e.target.value })} /></label><button disabled={isAnalyzing}>{isAnalyzing ? t.analyzing : t.startAnalysis}</button>{analysisError && <strong className="onboarding-error">{t.analysisError}: {analysisError}</strong>}</form><div className="language-switch"><button className={locale === "zh" ? "on" : ""} onClick={() => setLocale("zh")}>中文</button><button className={locale === "en" ? "on" : ""} onClick={() => setLocale("en")}>EN</button></div></main></div>;
+  if (loadError) return <div className="v2-shell v2-centered"><main className="v2-error-card" role="alert"><div className="v2-brand"><span>▲</span><div><strong>ATLAS</strong><small>LUMEWORD AI WORKSPACE</small></div></div><h1>{locale === "zh" ? "工作台暂时无法打开" : "Workspace could not open"}</h1><p>{loadError}</p><button onClick={loadWorkspace}>{locale === "zh" ? "重试" : "Retry"}</button></main></div>;
+  if (isLoading || !data.product || data.product.analysisStatus !== "completed") return <div className="v2-shell v2-centered"><main className="v2-error-card"><div className="v2-brand"><span>▲</span><div><strong>ATLAS</strong><small>LUMEWORD AI WORKSPACE</small></div></div><p>{locale === "zh" ? "正在打开你的工作台…" : "Opening your workspace…"}</p></main></div>;
 
-  return <div className="v2-shell" lang={locale === "zh" ? "zh-CN" : "en"}>
+  return <div className={`v2-shell ${mobileNavOpen ? "nav-open" : ""}`} lang={locale === "zh" ? "zh-CN" : "en"}>
+    <button className="v2-mobile-menu" onClick={() => setMobileNavOpen(true)}>☰</button>{mobileNavOpen && <button aria-label="Close navigation" className="v2-nav-scrim" onClick={() => setMobileNavOpen(false)} />}
     <aside className="v2-sidebar">
       <div className="v2-brand"><span>▲</span><div><strong>ATLAS</strong><small>{locale === "zh" ? "增长执行官" : "GROWTH OPERATOR"}</small></div></div>
       <p>{t.workspace}</p>
-      <nav>{nav.map((item) => <button key={item.id} className={view === item.id ? "selected" : ""} onClick={() => setView(item.id)}><i>{item.icon}</i>{t[item.key]}{item.id === "approvals" && pendingApprovals.length > 0 && <b>{pendingApprovals.length}</b>}</button>)}</nav>
+      <nav>{nav.map((item) => <button key={item.id} className={view === item.id ? "selected" : ""} onClick={() => { setView(item.id); setMobileNavOpen(false); }}><i>{item.icon}</i>{t[item.key]}{item.id === "approvals" && pendingApprovals.length > 0 && <b>{pendingApprovals.length}</b>}</button>)}</nav>
       <div className="operator-status"><span className="live" /> <div><strong>{data.product?.name ?? data.agents[0]?.name}</strong><small>{data.product?.url ?? `${t.running} · ${data.agents[0]?.currentTask}`}</small></div></div>
       <div className="v2-sidebar-foot"><span>{t.company}</span><div className="language-switch"><button className={locale === "zh" ? "on" : ""} onClick={() => setLocale("zh")}>中文</button><button className={locale === "en" ? "on" : ""} onClick={() => setLocale("en")}>EN</button></div></div>
     </aside>
     <main className="v2-main">
-      <header className="v2-header"><div><span className="breadcrumb">ATLAS / {t[nav.find((item) => item.id === view)?.key ?? "today"]}</span></div><div className="workflow"><span>{t.observe}</span><i /> <span>{t.analyze}</span><i /> <span>{t.plan}</span><i /> <span>{t.execute}</span><i /> <span>{t.measure}</span><i /> <span>{t.reflect}</span></div></header>
+      <header className="v2-header"><div><span className="breadcrumb">ATLAS / {t[nav.find((item) => item.id === view)?.key ?? "today"]}</span></div><div className="v2-user-menu"><span className="live" /> <strong>{user?.displayName ?? data.product.name}</strong><a href="/signout-with-chatgpt?return_to=/">{locale === "zh" ? "退出" : "Sign out"}</a></div><div className="workflow"><span>{t.observe}</span><i /> <span>{t.analyze}</span><i /> <span>{t.plan}</span><i /> <span>{t.execute}</span><i /> <span>{t.measure}</span><i /> <span>{t.reflect}</span></div></header>
       <div className="v2-content">
         {view === "today" && <Today t={t} data={data} tasks={todayTasks} approvals={pendingApprovals} onSelectApproval={setSelectedApproval} />}
         {view === "approvals" && <Approvals t={t} approvals={data.approvals} tasks={data.tasks} onSelect={setSelectedApproval} />}
@@ -88,7 +99,7 @@ export function AtlasDashboard() {
 
 function Today({ t, data, tasks, approvals, onSelectApproval }: { t: typeof copy.zh; data: AtlasV2Data; tasks: AtlasV2Data["tasks"]; approvals: Approval[]; onSelectApproval: (item: Approval) => void }) {
   return <><section className="today-intro"><div><p>{t.role} · {t.active}</p><h1>{t.todayTitle}</h1><span>{t.todayLead}</span></div><div className="today-summary"><strong>{data.metrics.yesterdayCompleted}</strong><span>{t.completed}</span><i /> <strong>{tasks.length}</strong><span>{t.planned}</span><i /> <strong>{approvals.length}</strong><span>{t.waiting}</span></div></section>
-    <section className="today-grid"><div className="today-primary"><Panel title={t.planned} eyebrow="NEXT BEST ACTIONS"><div className="task-stack">{tasks.map((task) => <TaskCard key={task.id} task={task} t={t} />)}</div></Panel><Panel title={t.discoveries} eyebrow="ATLAS FOUND"><div className="discovery-list">{data.opportunities.slice(0, 2).map((item) => <div key={item.id}><span>{item.signal}</span><div><strong>{item.title}</strong><small>{item.summary}</small></div><b>{item.confidence}%</b></div>)}</div></Panel></div>
+    <section className="today-grid"><div className="today-primary"><Panel title={t.planned} eyebrow="NEXT BEST ACTIONS"><div className="task-stack">{tasks.map((task) => <TaskCard key={task.id} task={task} t={t} />)}</div></Panel><Panel title={t.discoveries} eyebrow="TOP OPPORTUNITY"><div className="discovery-list top-opportunity">{data.opportunities.slice(0, 2).map((item) => <div key={item.id}><span>{item.signal}</span><div><strong>{item.title}</strong><small>{item.summary}</small></div><b>{item.confidence}%</b></div>)}</div></Panel><Panel title={t.activity} eyebrow="RECENT ACTIVITY"><div className="activity-mini">{data.runs.slice(0, 3).map((run) => <div key={run.id}><span className={`run-dot ${statusTone(run.status)}`} /><div><strong>{run.task}</strong><small>{run.startedAt} · {statusText(run.status, t)}</small></div></div>)}</div></Panel></div>
       <aside className="today-side"><Panel title={t.waiting} eyebrow="APPROVAL QUEUE"><div className="approval-mini">{approvals.map((item) => <button key={item.id} onClick={() => onSelectApproval(item)}><span className={`risk ${riskTone(item.riskLevel)}`}>{t.level} {item.riskLevel}</span><strong>{item.title}</strong><small>{item.createdAt} · {item.actionType}</small><i>→</i></button>)}</div></Panel><Panel title={t.metrics} eyebrow="YESTERDAY"><div className="metric-list"><div><span>{t.visits}</span><strong>{data.metrics.visits.toLocaleString()}</strong></div><div><span>{t.signups}</span><strong>{data.metrics.signups}</strong></div><div><span>{t.paid}</span><strong>{data.metrics.paid}</strong></div><div><span>CVR</span><strong>{data.metrics.conversion}%</strong></div></div></Panel><div className="risk-note"><span>!</span><div><strong>{t.risks}</strong><p>{t.riskMessage}</p></div></div></aside></section></>;
 }
 

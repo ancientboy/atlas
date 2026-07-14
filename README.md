@@ -44,6 +44,21 @@ npm run dev
 
 Open `http://localhost:3000`. The local Cloudflare D1 database seeds V2 demo data on the first `GET /api/atlas-v2`.
 
+
+## Cloudflare deployment configuration
+
+Product Analysis fetches are fail-closed unless a trusted DNS-over-HTTPS resolver is configured. For Cloudflare deployments, set server-only environment variables/secrets similar to:
+
+```bash
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4o-mini
+ATLAS_DNS_RESOLVER=https://cloudflare-dns.com/dns-query
+```
+
+`ATLAS_DNS_RESOLVER` must be a DNS-over-HTTPS JSON endpoint compatible with Cloudflare's format. Atlas sends `GET` requests with `Accept: application/dns-json` and query parameters `name=<hostname>&type=A` and `name=<hostname>&type=AAAA`, then reads `Answer[]` records where `type` is `1` (A) or `28` (AAAA). DNS failures, malformed responses, and hostnames with no A/AAAA records are rejected before any page fetch.
+
+Authentication in this private Alpha depends on trusted Sites identity headers (`oai-authenticated-user-*`) being injected by the hosting layer. This PR does not implement public self-serve registration.
+
 ## Verification
 
 ```bash

@@ -56,3 +56,45 @@ test("LLM 无效 JSON/Schema 被安全处理，缺少 key 错误不泄露敏感�
   assert.equal(safeClientError(new Error("LLM request failed: sk-secret upstream dump")), "Analysis failed. Please retry later.");
   validateProductAnalysis({ summary: "s", valueProposition: "v", icp: "i", pains: ["p"], useCases: ["u"], competitors: ["c"], channels: ["ch"], nextBestActions: [{ title: "a", description: "d", expectedOutcome: "e" }, { title: "b", description: "d", expectedOutcome: "e" }, { title: "c", description: "d", expectedOutcome: "e" }], opportunities: [{ title: "o", summary: "s", suggestedAction: "a", signal: "sig", confidence: 50 }] });
 });
+
+test("Cloudflare DoH JSON 同时解析 A/AAAA 并 fail closed", async () => {
+  const { parseDohAddresses, resolveCloudflareDoh } = await import("../lib/atlas-runtime.ts");
+  assert.deepEqual(parseDohAddresses({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }, { type: 28, data: "2606:2800:220:1:248:1893:25c8:1946" }] }), ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"]);
+  await assert.rejects(() => resolveCloudflareDoh("example.com", "https://cloudflare-dns.com/dns-query", async () => new Response("{}", { status: 500 })));
+  await assert.rejects(() => resolveCloudflareDoh("example.com", "https://cloudflare-dns.com/dns-query", async () => Response.json({ bogus: true })));
+  await assert.rejects(() => resolveCloudflareDoh("example.com", "https://cloudflare-dns.com/dns-query", async () => Response.json({ Status: 0, Answer: [] })));
+  const seen = [];
+  const result = await resolveCloudflareDoh("example.com", "https://cloudflare-dns.com/dns-query", async (url) => {
+    seen.push(new URL(url).searchParams.get("type"));
+    return Response.json({ Status: 0, Answer: new URL(url).searchParams.get("type") === "A" ? [{ type: 1, data: "93.184.216.34" }] : [{ type: 28, data: "2606:2800:220:1:248:1893:25c8:1946" }] });
+  });
+  assert.deepEqual(seen, ["A", "AAAA"]);
+  assert.deepEqual(result, ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"]);
+});
+
+test("新 Workspace 首次分析创建自己的 Agent/Task/Run 且 ID/workspace 一致", async () => {
+  const { createProductAnalysisRecords } = await import("../lib/atlas-workspace-runtime.ts");
+  const rows = { agents: [], tasks: [], runs: [], products: [] };
+  let id = 41;
+  const db = {
+    prepare(sql) {
+      return { bind(...values) { return { async first() {
+        if (sql.startsWith("SELECT id FROM agents")) return rows.agents.find((agent) => agent.workspaceId === values[0] && agent.role === values[1]) ?? null;
+        if (sql.startsWith("INSERT INTO agents")) { const row = { id: ++id, workspaceId: values[0], role: "Growth Operator" }; rows.agents.push(row); return { id: row.id }; }
+        if (sql.startsWith("INSERT INTO agent_tasks")) { const row = { id: ++id, workspaceId: values[0], agentId: values[1] }; rows.tasks.push(row); return { id: row.id }; }
+        if (sql.startsWith("INSERT INTO agent_runs")) { const row = { id: ++id, workspaceId: values[0], agentId: values[1], taskId: values[2] }; rows.runs.push(row); return { id: row.id }; }
+        if (sql.startsWith("INSERT INTO products")) { const row = { id: ++id, workspaceId: values[0] }; rows.products.push(row); return { id: row.id }; }
+        throw new Error(`Unexpected SQL: ${sql}`);
+      } }; } };
+    },
+  };
+  const records = await createProductAnalysisRecords(db, "workspace-alpha", { name: "Alpha", url: "https://example.com" }, "2026-07-14T00:00:00Z");
+  assert.equal(rows.agents.length, 1);
+  assert.equal(rows.agents[0].workspaceId, "workspace-alpha");
+  assert.equal(rows.tasks[0].workspaceId, "workspace-alpha");
+  assert.equal(rows.runs[0].workspaceId, "workspace-alpha");
+  assert.equal(rows.tasks[0].agentId, records.agentId);
+  assert.equal(rows.runs[0].agentId, records.agentId);
+  assert.equal(rows.runs[0].taskId, records.taskId);
+  assert.notEqual(records.agentId, 1);
+});

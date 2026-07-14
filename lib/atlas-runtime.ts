@@ -35,6 +35,32 @@ function safeDecode(value: string) { try { return decodeURIComponent(value); } c
 function ipv4ToInt(host: string) { const parts = host.split("."); if (parts.length !== 4) return null; let n = 0; for (const p of parts) { if (!/^\d+$/.test(p)) return null; const v = Number(p); if (v < 0 || v > 255) return null; n = (n << 8) + v; } return n >>> 0; }
 export function isBlockedIp(hostname: string) { const host = hostname.toLowerCase().replace(/^\[|\]$/g, ""); const v4 = ipv4ToInt(host); if (v4 !== null) return privateRanges.some(([start, end]) => v4 >= start && v4 <= end); if (host === "::1" || host === "::" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("ff") || host.startsWith("2001:db8") || host.startsWith("2002:") || host.startsWith("::ffff:")) return true; return false; }
 export function validatePublicUrl(input: string) { const url = new URL(input); if (!["http:", "https:"].includes(url.protocol)) throw new Error("Only public http/https URLs are allowed."); if (url.username || url.password) throw new Error("URL credentials are not allowed."); if (url.port && !["80", "443"].includes(url.port)) throw new Error("Only ports 80 and 443 are allowed."); const host = url.hostname.toLowerCase(); if (["localhost", "0", "0.0.0.0"].includes(host) || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || metadataHosts.has(host) || isBlockedIp(host)) throw new Error("Private, reserved, and metadata addresses are not allowed."); return url; }
+
+export type DnsAnswer = { type?: number; data?: string };
+export type DnsJsonResponse = { Status?: number; Answer?: DnsAnswer[] };
+export function parseDohAddresses(payload: unknown) {
+  const response = payload as DnsJsonResponse;
+  if (!response || typeof response !== "object" || response.Status !== 0 || !Array.isArray(response.Answer)) throw new Error("Trusted DNS resolver returned an invalid response.");
+  const addresses = response.Answer.filter((answer) => answer && (answer.type === 1 || answer.type === 28) && typeof answer.data === "string").map((answer) => answer.data as string);
+  if (!addresses.length) throw new Error("Hostname did not resolve.");
+  return addresses;
+}
+export async function resolveCloudflareDoh(hostname: string, endpoint: string, fetcher: typeof fetch = fetch) {
+  const all: string[] = [];
+  for (const type of ["A", "AAAA"] as const) {
+    const url = new URL(endpoint);
+    url.searchParams.set("name", hostname);
+    url.searchParams.set("type", type);
+    const response = await fetcher(url.toString(), { headers: { accept: "application/dns-json" } });
+    if (!response.ok) throw new Error("Trusted DNS resolver request failed.");
+    const payload = await response.json() as DnsJsonResponse;
+    if (!payload || typeof payload !== "object" || payload.Status !== 0 || (payload.Answer !== undefined && !Array.isArray(payload.Answer))) throw new Error("Trusted DNS resolver returned an invalid response.");
+    all.push(...(payload.Answer ?? []).filter((answer) => answer && (answer.type === 1 || answer.type === 28) && typeof answer.data === "string").map((answer) => answer.data as string));
+  }
+  if (!all.length) throw new Error("Hostname did not resolve.");
+  return all;
+}
+
 export async function resolvePublicAddresses(hostname: string, resolver?: (hostname: string) => Promise<string[]>) { if (!resolver) throw new Error("Trusted DNS resolver is not configured."); const addresses = await resolver(hostname); if (!addresses.length) throw new Error("Hostname did not resolve."); for (const address of addresses) if (isBlockedIp(address)) throw new Error("Hostname resolves to a private or reserved address."); return addresses; }
 export async function readLimitedText(response: Response, limitBytes: number) { const length = response.headers.get("content-length"); if (length && Number(length) > limitBytes) throw new Error("Response body exceeds the allowed size."); if (!response.body) return ""; const reader = response.body.getReader(); const chunks: Uint8Array[] = []; let total = 0; for (;;) { const { done, value } = await reader.read(); if (done) break; total += value.byteLength; if (total > limitBytes) { await reader.cancel(); throw new Error("Response body exceeds the allowed size."); } chunks.push(value); } return new TextDecoder().decode(concat(chunks, total)); }
 function concat(chunks: Uint8Array[], total: number) { const out = new Uint8Array(total); let offset = 0; for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; } return out; }

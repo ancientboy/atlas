@@ -6,6 +6,44 @@ const timestamps = {
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 };
 
+
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email"),
+  name: text("name"),
+  locale: text("locale").notNull().default("zh"),
+  ...timestamps,
+});
+
+export const workspaces = sqliteTable("workspaces", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdByUserId: text("created_by_user_id").notNull(),
+  ...timestamps,
+});
+
+export const workspaceMembers = sqliteTable("workspace_members", {
+  workspaceId: text("workspace_id").notNull(),
+  userId: text("user_id").notNull(),
+  role: text("role").notNull().default("owner"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const products = sqliteTable("products", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  description: text("description"),
+  growthGoal: text("growth_goal"),
+  analysisStatus: text("analysis_status").notNull().default("pending"),
+  analysisError: text("analysis_error"),
+  analysisJson: text("analysis_json"),
+  fetchedTitle: text("fetched_title"),
+  fetchedDescription: text("fetched_description"),
+  ...timestamps,
+});
+
 export const founders = sqliteTable("founders", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
@@ -107,6 +145,7 @@ export const researchSources = sqliteTable("research_sources", {
 
 export const agents = sqliteTable("agents", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
   name: text("name").notNull(),
   role: text("role").notNull(),
   description: text("description").notNull(),
@@ -121,6 +160,7 @@ export const agents = sqliteTable("agents", {
 
 export const agentTasks = sqliteTable("agent_tasks", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
   agentId: integer("agent_id").notNull(),
   title: text("title").notNull(),
   description: text("description").notNull(),
@@ -139,6 +179,7 @@ export const agentTasks = sqliteTable("agent_tasks", {
 
 export const agentRuns = sqliteTable("agent_runs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
   agentId: integer("agent_id").notNull(),
   taskId: integer("task_id"),
   task: text("task").notNull(),
@@ -153,6 +194,7 @@ export const agentRuns = sqliteTable("agent_runs", {
 
 export const approvals = sqliteTable("approvals", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
   taskId: integer("task_id").notNull(),
   actionType: text("action_type").notNull(),
   title: text("title").notNull(),
@@ -168,6 +210,7 @@ export const approvals = sqliteTable("approvals", {
 
 export const memories = sqliteTable("memories", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
   memoryType: text("memory_type").notNull(),
   title: text("title").notNull(),
   content: text("content").notNull(),
@@ -180,6 +223,7 @@ export const memories = sqliteTable("memories", {
 
 export const observations = sqliteTable("observations", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
   sourceType: text("source_type").notNull(),
   sourceName: text("source_name").notNull(),
   content: text("content").notNull(),
@@ -190,6 +234,7 @@ export const observations = sqliteTable("observations", {
 
 export const opportunities = sqliteTable("opportunities", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
   title: text("title").notNull(),
   source: text("source").notNull(),
   observedAt: text("observed_at").notNull(),
@@ -202,6 +247,7 @@ export const opportunities = sqliteTable("opportunities", {
 
 export const connections = sqliteTable("connections", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
   name: text("name").notNull(),
   description: text("description").notNull(),
   status: text("status").notNull().default("available"),
@@ -211,6 +257,7 @@ export const connections = sqliteTable("connections", {
 
 export const metrics = sqliteTable("metrics", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
   metricDate: text("metric_date").notNull(),
   visits: integer("visits").notNull().default(0),
   signups: integer("signups").notNull().default(0),

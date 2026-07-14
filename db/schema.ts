@@ -9,7 +9,7 @@ const timestamps = {
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
-  email: text("email"),
+  email: text("email").unique(),
   name: text("name"),
   locale: text("locale").notNull().default("zh"),
   ...timestamps,
@@ -264,4 +264,13 @@ export const metrics = sqliteTable("metrics", {
   paid: integer("paid").notNull().default(0),
   conversion: real("conversion").notNull().default(0),
   completedTasks: integer("completed_tasks").notNull().default(0),
+});
+
+
+export const agentRateLimits = sqliteTable("agent_rate_limits", {
+  key: text("key").primaryKey(),
+  userId: text("user_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  count: integer("count").notNull().default(0),
+  windowStart: text("window_start").notNull(),
 });

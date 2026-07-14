@@ -1,18 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getAuthenticatedUser, readLimitedText, resolvePublicAddresses, safeClientError, validateProductAnalysis, validatePublicUrl } from "../lib/atlas-runtime.ts";
+import { getAuthenticatedUser, readLimitedText, resolvePublicAddresses, safeClientError, stableUserId, validateProductAnalysis, validatePublicUrl } from "../lib/atlas-runtime.ts";
 
-test("未登录 API 身份解析返回 null，开发演示模式必须显式开启", () => {
-  assert.equal(getAuthenticatedUser(new Headers(), { NODE_ENV: "production" }), null);
-  assert.equal(getAuthenticatedUser(new Headers(), { NODE_ENV: "development" }), null);
-  assert.equal(getAuthenticatedUser(new Headers(), { NODE_ENV: "development", ATLAS_DEV_DEMO: "1" })?.id, "dev-demo-user");
+test("未登录 API 身份解析返回 null，开发演示模式必须显式开启", async () => {
+  assert.equal(await getAuthenticatedUser(new Headers(), { NODE_ENV: "production" }), null);
+  assert.equal(await getAuthenticatedUser(new Headers(), { NODE_ENV: "development" }), null);
+  assert.equal((await getAuthenticatedUser(new Headers(), { NODE_ENV: "development", ATLAS_DEV_DEMO: "1" }))?.id, "dev-demo-user");
 });
 
-test("伪造用户 header 不被接受，必须使用服务端认证 header", () => {
+test("伪造用户 header 不被接受，必须使用服务端认证 header", async () => {
   const headers = new Headers({ "x-atlas-user-id": "attacker", "x-atlas-workspace-id": "victim" });
-  assert.equal(getAuthenticatedUser(headers, { NODE_ENV: "production" }), null);
+  assert.equal(await getAuthenticatedUser(headers, { NODE_ENV: "production" }), null);
   headers.set("oai-authenticated-user-email", "owner@example.com");
-  assert.equal(getAuthenticatedUser(headers, { NODE_ENV: "production" })?.email, "owner@example.com");
+  assert.equal((await getAuthenticatedUser(headers, { NODE_ENV: "production" }))?.email, "owner@example.com");
+});
+
+test("格式相近邮箱不会产生相同用户 ID", async () => {
+  assert.notEqual(await stableUserId("a+b@example.com"), await stableUserId("a_b@example.com"));
 });
 
 test("Workspace 查询必须带 workspace_id 条件以隔离 A/B 工作区", async () => {
@@ -21,6 +25,8 @@ test("Workspace 查询必须带 workspace_id 条件以隔离 A/B 工作区", asy
     assert.match(source, new RegExp(`${table}[^\"]*WHERE workspace_id = \\?`));
   }
   assert.match(source, /workspace_members/);
+  assert.doesNotMatch(source, /agent_id, title[\s\S]*VALUES \(\?, 1,/);
+  assert.match(source, /ensureWorkspaceAgent/);
 });
 
 test("私有 IPv4、IPv6、metadata、凭据、非法端口被阻止", () => {
@@ -32,6 +38,7 @@ test("私有 IPv4、IPv6、metadata、凭据、非法端口被阻止", () => {
 
 test("恶意 redirect 和 DNS 解析到私有地址会被阻止", async () => {
   assert.throws(() => validatePublicUrl(new URL("http://169.254.169.254/latest", "https://example.com").toString()));
+  await assert.rejects(() => resolvePublicAddresses("missing.example"));
   await assert.rejects(() => resolvePublicAddresses("evil.example", async () => ["10.1.2.3"]));
   await assert.doesNotReject(() => resolvePublicAddresses("safe.example", async () => ["93.184.216.34"]));
 });

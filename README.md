@@ -22,14 +22,18 @@ The app defaults to Chinese and has a true Chinese/English interface switch. His
 app/page.tsx
   └── components/atlas-dashboard.tsx (V2 bilingual UI + approval drawer)
 app/api/atlas-v2/route.ts
-  └── Cloudflare D1 read / seed / approval & opportunity mutations
+  └── authenticated workspace API, onboarding, approvals, and product analysis mutations
+lib/atlas-runtime.ts
+  └── auth parsing, SSRF-safe URL/DNS checks, streaming limits, LLM output validation
+lib/atlas-workspace-runtime.ts
+  └── per-workspace Growth Operator Agent and Product Analysis Task/Run creation
 lib/atlas-v2-data.ts
   └── typed demo seed and UI contracts
 db/schema.ts
   └── legacy V1 research tables + V2 runtime tables
 ```
 
-V2 database entities: `agents`, `agent_tasks`, `agent_runs`, `approvals`, `memories`, `observations`, `opportunities`, `connections`, and `metrics`.
+V2 database entities are workspace-scoped and include `users`, `workspaces`, `workspace_members`, `products`, `agents`, `agent_tasks`, `agent_runs`, `approvals`, `memories`, `observations`, `opportunities`, `connections`, `metrics`, and `agent_rate_limits`.
 
 ## Start locally
 
@@ -42,7 +46,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The local Cloudflare D1 database seeds V2 demo data on the first `GET /api/atlas-v2`.
+Open `http://localhost:3000`. Development demo data is only written when `ATLAS_DEV_DEMO=1` is explicitly enabled outside production.
 
 
 ## Cloudflare deployment configuration
@@ -69,7 +73,7 @@ npm test
 
 ## Intentional prototype boundaries
 
-This first V2 slice uses simulated observation data and mock connections. It does **not** yet scrape websites, publish to social networks, alter a live landing page, run a cron scheduler, or perform a real external action. Level 3 actions remain manual by design. The D1 model and approval flow are in place so those integrations can be added safely next.
+This V2 slice includes workspace isolation, onboarding, and a Product Analysis Agent that safely fetches public product pages after DoH/IP validation. Other connectors are still mocked: Atlas does **not** yet publish to social networks, alter a live landing page, run a cron scheduler, or perform real external actions. Level 3 actions remain manual by design.
 
 ## Recommended next implementation steps
 
@@ -77,4 +81,4 @@ This first V2 slice uses simulated observation data and mock connections. It doe
 2. Add a scheduled job that writes normalized observations to D1.
 3. Convert the Growth Operator's task planner from seed data to rules / model-backed planning.
 4. Add one real Level 2 executor (draft → approval → publish) with audit logs and rollback.
-5. Add sign-in and workspace isolation before connecting customer data.
+5. Replace the private Alpha Sites identity-header dependency with a public registration and account-management flow when the product is ready for self-serve users.

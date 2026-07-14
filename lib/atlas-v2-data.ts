@@ -7,6 +7,7 @@ export type AgentRun = { id: number; agentId: number; taskId: number; task: stri
 export type Opportunity = { id: number; title: string; source: string; observedAt: string; confidence: number; summary: string; suggestedAction: string; status: "new" | "saved" | "ignored"; signal: string };
 export type Memory = { id: number; type: string; title: string; content: string; source: string; confidence: number; status: "active" | "unverified" | "validated" | "rejected" | "outdated"; verifiedAt: string };
 export type Connection = { id: number; name: string; description: string; status: "connected" | "mock" | "available"; lastSync: string; category: string };
+export type Product = { id: number; name: string; url: string; description?: string | null; growthGoal?: string | null; analysisStatus: "pending" | "running" | "completed" | "failed"; analysisError?: string | null; analysis?: Record<string, unknown> | null };
 
 export const atlasV2Seed = {
   agents: [
@@ -50,4 +51,4 @@ export const atlasV2Seed = {
   ] satisfies Connection[],
 };
 
-export type AtlasV2Data = typeof atlasV2Seed & { metrics: { visits: number; signups: number; paid: number; conversion: number; yesterdayCompleted: number } };
+export type AtlasV2Data = typeof atlasV2Seed & { product?: Product | null; workspace?: { id: string }; metrics: { visits: number; signups: number; paid: number; conversion: number; yesterdayCompleted: number } };

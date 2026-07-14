@@ -100,3 +100,15 @@ main { min-width:0; }
 @media (max-width:1050px) { .today-grid { grid-template-columns:1fr; }.today-side { display:grid; grid-template-columns:1fr 1fr; }.today-side .risk-note { grid-column:1/-1; }.connection-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:760px) { .v2-shell { grid-template-columns:1fr; }.v2-sidebar { position:relative; height:auto; min-height:0; padding:17px; }.v2-brand { padding-bottom:16px; }.v2-sidebar nav { display:flex; overflow:auto; gap:3px; }.v2-sidebar nav button { min-width:max-content; width:auto; padding:0 9px; }.operator-status { display:none; }.v2-sidebar-foot { padding-top:12px; }.v2-header { padding:0 18px; }.workflow { display:none; }.v2-content { padding:26px 17px 42px; }.today-intro { align-items:flex-start; flex-direction:column; }.today-summary { width:100%; justify-content:center; }.today-grid { margin-top:16px; }.today-side { display:flex; }.approval-grid,.opportunity-grid,.memory-grid,.agent-grid,.connection-grid { grid-template-columns:1fr; }.run-list footer { flex-direction:column; gap:5px; }.run-list footer b { margin-left:0; }.view-title h1,.today-intro h1 { font-size:28px; }.task-card footer { flex-direction:column; gap:4px; } }
 @media (max-width:430px) { .today-summary { grid-template-columns:auto auto 1px auto auto 1px auto auto; gap:4px; padding:10px 8px; }.today-summary strong { font-size:18px; }.today-summary span { font-size:7px; }.today-summary i { margin:0 1px; }.v2-content { padding:22px 13px 35px; }.v2-panel { padding:16px; }.approval-drawer { padding:30px 20px; } }
+
+.onboarding-shell { min-height: 100vh; display: grid; place-items: center; padding: 32px; }
+.onboarding-card { width: min(720px, 100%); border: 1px solid rgba(255,255,255,.14); border-radius: 28px; padding: 34px; background: rgba(12,16,24,.88); box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+.onboarding-card h1 { margin: 10px 0 24px; font-size: clamp(34px, 6vw, 64px); letter-spacing: -0.06em; }
+.onboarding-card p { color: var(--muted); max-width: 58ch; }
+.onboarding-card form { display: grid; gap: 16px; margin-top: 20px; }
+.onboarding-card label { display: grid; gap: 8px; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+.onboarding-card input, .onboarding-card textarea { border: 1px solid rgba(255,255,255,.16); border-radius: 16px; background: rgba(255,255,255,.06); color: inherit; padding: 14px 16px; font: inherit; text-transform: none; letter-spacing: 0; }
+.onboarding-card textarea { min-height: 110px; resize: vertical; }
+.onboarding-card form button { border: 0; border-radius: 999px; padding: 15px 20px; color: #071014; background: linear-gradient(135deg, #d7ff73, #6af2ff); font-weight: 800; cursor: pointer; }
+.onboarding-card form button:disabled { opacity: .65; cursor: wait; }
+.onboarding-error { color: #ff9f9f; font-size: 14px; }

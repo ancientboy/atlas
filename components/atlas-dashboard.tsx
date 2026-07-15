@@ -7,6 +7,7 @@ import type { ProductAnalysisCore } from "../lib/atlas-runtime";
 import { campaignTrackingUrl } from "../lib/campaign-tracking";
 import { campaignChannelLimit, campaignChannels, type CampaignChannel } from "../lib/campaign-channels";
 import { workspaceDestination, workspaceErrorMessage } from "../lib/route-state";
+import { AccountMenu } from "./account-menu";
 
 type Locale = "zh" | "en";
 type View = "today" | "product-intelligence" | "campaigns" | "approvals" | "activity" | "opportunities" | "memory" | "agents" | "connections";
@@ -141,7 +142,7 @@ export function AtlasDashboard({ user }: { user?: { displayName: string; email: 
       <p>{t.workspace}</p>
       <nav>{nav.map((item) => <button key={item.id} className={view === item.id ? "selected" : ""} onClick={() => { setView(item.id); window.history.replaceState(null, "", appUrl(item.id)); setMobileNavOpen(false); }}><i>{item.icon}</i>{item.label?.[locale] ?? t[item.key]}{item.id === "approvals" && pendingApprovals.length > 0 && <b>{pendingApprovals.length}</b>}</button>)}</nav>
       <div className="operator-status"><span className="live" /> <div><strong>{data.product?.name ?? data.agents[0]?.name}</strong><small>{data.product?.url ?? `${t.running} · ${data.agents[0]?.currentTask}`}</small></div></div>
-      <div className="v2-sidebar-foot"><span>{t.company}</span><div className="language-switch"><button className={locale === "zh" ? "on" : ""} onClick={() => setLocale("zh")}>中文</button><button className={locale === "en" ? "on" : ""} onClick={() => setLocale("en")}>EN</button></div></div>
+      <div className="v2-sidebar-foot"><AccountMenu initialName={user?.displayName ?? data.product.name} email={user?.email ?? ""} locale={locale} onLocaleChange={setLocale} /></div>
     </aside>
     <main className="v2-main">
       <header className="v2-header"><div><span className="breadcrumb">ATLAS / {nav.find((item) => item.id === view)?.label?.[locale] ?? t[nav.find((item) => item.id === view)?.key ?? "today"]}</span></div><div className="v2-user-menu"><span className="live" /> <strong>{user?.displayName ?? data.product.name}</strong><a href="/signout-with-chatgpt?return_to=/">{locale === "zh" ? "退出" : "Sign out"}</a></div><div className="workflow"><span>{t.observe}</span><i /> <span>{t.analyze}</span><i /> <span>{t.plan}</span><i /> <span>{t.execute}</span><i /> <span>{t.measure}</span><i /> <span>{t.reflect}</span></div></header>

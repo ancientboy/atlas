@@ -158,3 +158,13 @@ test("Growth Campaign Agent validates one generated asset per requested channel"
   assert.deepEqual(result.assets.map((asset) => asset.channel), ["x", "blog"]);
   await assert.rejects(() => generateGrowthCampaignWithLlm({ product: {}, opportunity: {}, objective: "Visits", channels: ["x", "blog"], locale: "en" }, { OPENAI_API_KEY: "openai-key" }, async () => Response.json({ choices: [{ message: { content: JSON.stringify({ ...draft, assets: draft.assets.slice(0, 1) }) } }] })), /Invalid campaign assets/);
 });
+
+test("Growth Campaign Agent rejects content that exceeds a platform limit", async () => {
+  const draft = { name: "Launch", objective: "Visits", audience: "Founders", coreMessage: "Ship", offer: "Trial", cta: "Try it", assets: [
+    { channel: "x", title: "Too long", content: "x".repeat(281), cta: "Try it" },
+  ] };
+  await assert.rejects(
+    () => generateGrowthCampaignWithLlm({ product: {}, opportunity: {}, objective: "Visits", channels: ["x"], locale: "en" }, { OPENAI_API_KEY: "openai-key" }, async () => Response.json({ choices: [{ message: { content: JSON.stringify(draft) } }] })),
+    /Invalid campaign assets/,
+  );
+});

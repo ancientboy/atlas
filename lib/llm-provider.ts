@@ -1,4 +1,4 @@
-import { resolveCloudflareDoh, resolvePublicAddresses, validateProductAnalysis, validatePublicUrl, type ProductAnalysis } from "./atlas-runtime.ts";
+import { readLimitedText, resolveCloudflareDoh, resolvePublicAddresses, validateProductAnalysis, validatePublicUrl, type ProductAnalysis } from "./atlas-runtime.ts";
 
 export type LlmEnv = Record<string, string | undefined>;
 export type LlmProviderConfig = {
@@ -12,6 +12,8 @@ type ProductInput = { name: string; url: string; description?: string; growthGoa
 type PageInput = { title: string; description: string; body: string };
 
 const openAiEndpoint = "https://api.openai.com/v1/chat/completions";
+const defaultLlmTimeoutMs = 20_000;
+const defaultLlmBodyLimitBytes = 1_000_000;
 
 export function resolveLlmProvider(env: LlmEnv): LlmProviderConfig {
   const customBaseUrl = env.LLM_BASE_URL?.trim();
@@ -49,16 +51,45 @@ export async function analyzeProductWithLlm(product: ProductInput, page: PageInp
   const config = resolveLlmProvider(env);
   await assertSafeLlmEndpoint(config, env, resolver);
   const payload = llmRequestBody(config.model, product, page, true);
-  let response = await fetcher(config.endpoint, requestInit(config.apiKey, payload));
+  const timeoutMs = parsePositiveInteger(env.LLM_TIMEOUT_MS, defaultLlmTimeoutMs);
+  const bodyLimitBytes = parsePositiveInteger(env.LLM_RESPONSE_LIMIT_BYTES, defaultLlmBodyLimitBytes);
+  let response = await fetchWithTimeout(fetcher, config.endpoint, requestInit(config.apiKey, payload), timeoutMs);
   if (config.isCustom && response.status === 400) {
-    response = await fetcher(config.endpoint, requestInit(config.apiKey, llmRequestBody(config.model, product, page, false)));
+    response = await fetchWithTimeout(fetcher, config.endpoint, requestInit(config.apiKey, llmRequestBody(config.model, product, page, false)), timeoutMs);
   }
   if (!response.ok) throw new Error("LLM request failed.");
-  return parseLlmResponse(await response.json());
+  return parseLlmResponse(await readLimitedJson(response, bodyLimitBytes));
 }
 
 function requestInit(apiKey: string, body: unknown): RequestInit {
   return { method: "POST", headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }, body: JSON.stringify(body) };
+}
+
+async function fetchWithTimeout(fetcher: typeof fetch, endpoint: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetcher(endpoint, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("LLM request timed out.");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readLimitedJson(response: Response, bodyLimitBytes: number) {
+  try {
+    return JSON.parse(await readLimitedText(response, bodyLimitBytes));
+  } catch (error) {
+    if (error instanceof Error && /exceeds/.test(error.message)) throw new Error("LLM response body exceeds the allowed size.");
+    throw new Error("Invalid analysis format.");
+  }
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function llmRequestBody(model: string, product: ProductInput, page: PageInput, responseFormat: boolean) {

@@ -74,3 +74,19 @@ test("invalid JSON or invalid schema is rejected", () => {
   assert.throws(() => parseLlmResponse({ choices: [{ message: { content: "not-json" } }] }), /Invalid analysis format/);
   assert.throws(() => parseLlmResponse({ choices: [{ message: { content: JSON.stringify({ summary: "x" }) } }] }), /Invalid analysis/);
 });
+
+test("LLM requests time out safely", async () => {
+  await assert.rejects(
+    () => analyzeProductWithLlm(product, page, { OPENAI_API_KEY: "openai-key", OPENAI_MODEL: "gpt-4o-mini", LLM_TIMEOUT_MS: "1" }, (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new Error("aborted by signal")));
+    })),
+    /LLM request timed out/,
+  );
+});
+
+test("oversized LLM responses are rejected before JSON parsing", async () => {
+  await assert.rejects(
+    () => analyzeProductWithLlm(product, page, { OPENAI_API_KEY: "openai-key", OPENAI_MODEL: "gpt-4o-mini", LLM_RESPONSE_LIMIT_BYTES: "8" }, async () => Response.json({ choices: [{ message: { content: JSON.stringify(validAnalysis) } }] })),
+    /LLM response body exceeds the allowed size/,
+  );
+});

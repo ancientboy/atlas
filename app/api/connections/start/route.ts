@@ -5,7 +5,7 @@ import { authorizationUrl, createPkce, isOAuthProvider } from "../../../../lib/o
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const user = await getAuthenticatedUser(request.headers, env as Record<string, string | undefined>); if (!user) return new Response("Authentication required", { status: 401 });
+  const user = await getAuthenticatedUser(request.headers, env as Record<string, string | undefined>, env.DB); if (!user) return new Response("Authentication required", { status: 401 });
   const url = new URL(request.url); const provider = url.searchParams.get("provider") ?? ""; const workspaceId = url.searchParams.get("workspaceId") ?? "";
   if (!isOAuthProvider(provider) || !workspaceId) return new Response("Invalid connection request", { status: 400 });
   const member = await env.DB.prepare("SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?").bind(workspaceId, user.id).first(); if (!member) return new Response("Workspace access denied", { status: 403 });

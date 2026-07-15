@@ -1,6 +1,8 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { env } from "cloudflare:workers";
 import { chatGPTSignInPathFor, chatGPTSignOutPathFor } from "../lib/auth-paths";
+import { getAuthenticatedUser } from "../lib/atlas-runtime";
 
 export type ChatGPTUser = {
   displayName: string;
@@ -8,7 +10,6 @@ export type ChatGPTUser = {
   fullName: string | null;
 };
 
-const USER_EMAIL_HEADER = "oai-authenticated-user-email";
 const USER_FULL_NAME_HEADER = "oai-authenticated-user-full-name";
 const USER_FULL_NAME_ENCODING_HEADER =
   "oai-authenticated-user-full-name-encoding";
@@ -16,8 +17,10 @@ const PERCENT_ENCODED_UTF8 = "percent-encoded-utf-8";
 
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const requestHeaders = await headers();
-  const email = requestHeaders.get(USER_EMAIL_HEADER);
-  if (!email) return null;
+  const authenticated = await getAuthenticatedUser(requestHeaders, env as Record<string, string | undefined>, env.DB);
+  if (!authenticated) return null;
+
+  const email = authenticated.email;
 
   const encodedFullName = requestHeaders.get(USER_FULL_NAME_HEADER);
   const fullName =
@@ -27,7 +30,7 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
       : null;
 
   return {
-    displayName: fullName ?? email,
+    displayName: fullName ?? authenticated.name ?? email,
     email,
     fullName,
   };

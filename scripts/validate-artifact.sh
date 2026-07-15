@@ -9,6 +9,7 @@ required_files=(
   "dist/.openai/drizzle/0003_growth_campaign_agent.sql"
   "dist/.openai/drizzle/0004_distribution_attribution.sql"
   "dist/.openai/drizzle/0005_workspace_oauth_connections.sql"
+  "dist/.openai/drizzle/0006_atlas_multi_provider_auth.sql"
 )
 
 for file in "${required_files[@]}"; do

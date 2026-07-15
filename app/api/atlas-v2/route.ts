@@ -9,6 +9,7 @@ import { isPublishableChannel, publishCampaignAsset } from "../../../lib/publish
 import { decryptConnectionSecret } from "../../../lib/connection-vault";
 import { oauthAppReadiness } from "../../../lib/oauth-providers";
 import { readProductWebsite } from "../../../lib/website-reader";
+import { buildGrowthReflection } from "../../../lib/growth-reflection";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ async function ensureUserWorkspace(db: D1, user: { id: string; email: string; na
   return workspaceId;
 }
 async function getWorkspace(request: Request) {
-  const user = await getAuthenticatedUser(request.headers, env as Record<string, string | undefined>);
+  const user = await getAuthenticatedUser(request.headers, env as Record<string, string | undefined>, env.DB);
   if (!user) throw new Response(JSON.stringify({ error: "Authentication required" }), { status: 401 });
   const db = env.DB;
   const defaultWorkspaceId = await ensureUserWorkspace(db, user);
@@ -51,7 +52,7 @@ async function ensureDevSeed(db: D1, workspaceId: string) {
     db.prepare("INSERT INTO metrics (workspace_id, metric_date, visits, signups, paid, conversion, completed_tasks) VALUES (?, ?, 0, 0, 0, 0, 0)").bind(workspaceId, new Date().toISOString().slice(0, 10)),
   ]);
 }
-async function snapshot(workspaceId: string) { const db = env.DB; const [product, agents, tasks, approvals, runs, opportunities, memories, connections, metrics, campaigns, campaignAssets] = await Promise.all([
+async function snapshot(workspaceId: string) { const db = env.DB; const [product, agents, tasks, approvals, runs, opportunities, memories, connections, metrics, campaigns, campaignAssets, growthSnapshots] = await Promise.all([
  db.prepare("SELECT id, name, url, description, growth_goal AS growthGoal, analysis_status AS analysisStatus, analysis_error AS analysisError, analysis_json AS analysisJson FROM products WHERE workspace_id = ? ORDER BY id DESC LIMIT 1").bind(workspaceId).first(),
  db.prepare("SELECT id, name, role, description, status, autonomy_level AS autonomyLevel, schedule, success_rate AS successRate, current_task AS currentTask, tools FROM agents WHERE workspace_id = ? ORDER BY id").bind(workspaceId).all(),
  db.prepare("SELECT id, agent_id AS agentId, title, description, task_type AS taskType, priority, risk_level AS riskLevel, status, requires_approval AS requiresApproval, expected_outcome AS expectedOutcome, estimated_minutes AS estimatedMinutes, evidence, created_at AS createdAt FROM agent_tasks WHERE workspace_id = ? ORDER BY priority, id DESC LIMIT 20").bind(workspaceId).all(),
@@ -62,18 +63,34 @@ async function snapshot(workspaceId: string) { const db = env.DB; const [product
  db.prepare("SELECT id, name, description, status, last_sync AS lastSync, category FROM connections WHERE workspace_id = ? ORDER BY id").bind(workspaceId).all(),
  db.prepare("SELECT visits, signups, paid, conversion, completed_tasks AS completedTasks FROM metrics WHERE workspace_id = ? ORDER BY id DESC LIMIT 1").bind(workspaceId).first(),
  db.prepare("SELECT id, opportunity_id AS opportunityId, name, objective, audience, core_message AS coreMessage, offer, cta, status, created_at AS createdAt, updated_at AS updatedAt FROM campaigns WHERE workspace_id = ? ORDER BY id DESC").bind(workspaceId).all(),
- db.prepare("SELECT id, campaign_id AS campaignId, approval_id AS approvalId, channel, title, content, cta, status, published_url AS publishedUrl, published_at AS publishedAt, impressions, clicks, conversions, created_at AS createdAt FROM campaign_assets WHERE workspace_id = ? ORDER BY id DESC").bind(workspaceId).all(),]); return { workspace: { id: workspaceId }, product: product ? { ...product, analysis: parse((product as { analysisJson?: string }).analysisJson, null) } : null, agents: agents.results.map((i) => ({...i, tools: parse(i.tools, [])})), tasks: tasks.results.map((i) => ({...i, requiresApproval: Boolean(i.requiresApproval), evidence: parse(i.evidence, [])})), approvals: approvals.results, runs: runs.results.map((i) => ({...i, tools: parse(i.tools, [])})), opportunities: opportunities.results, memories: memories.results, connections: connections.results, campaigns: campaigns.results, campaignAssets: campaignAssets.results, metrics: { ...(metrics ?? { visits: 0, signups: 0, paid: 0, conversion: 0, completedTasks: 0 }), yesterdayCompleted: (metrics as { completedTasks?: number } | null)?.completedTasks ?? 0 } }; }
+ db.prepare("SELECT id, campaign_id AS campaignId, approval_id AS approvalId, channel, title, content, cta, status, published_url AS publishedUrl, published_at AS publishedAt, impressions, clicks, conversions, created_at AS createdAt FROM campaign_assets WHERE workspace_id = ? ORDER BY id DESC").bind(workspaceId).all(),
+ db.prepare("SELECT snapshot_date AS snapshotDate, visits, signups, paid, attributed_visits AS attributedVisits, attributed_signups AS attributedSignups, attributed_paid AS attributedPaid, reflection_json AS reflectionJson, created_at AS createdAt FROM daily_growth_snapshots WHERE workspace_id = ? ORDER BY snapshot_date DESC LIMIT 30").bind(workspaceId).all(),]); return { workspace: { id: workspaceId }, product: product ? { ...product, analysis: parse((product as { analysisJson?: string }).analysisJson, null) } : null, agents: agents.results.map((i) => ({...i, tools: parse(i.tools, [])})), tasks: tasks.results.map((i) => ({...i, requiresApproval: Boolean(i.requiresApproval), evidence: parse(i.evidence, [])})), approvals: approvals.results, runs: runs.results.map((i) => ({...i, tools: parse(i.tools, [])})), opportunities: opportunities.results, memories: memories.results, connections: connections.results, campaigns: campaigns.results, campaignAssets: campaignAssets.results, growthSnapshots: growthSnapshots.results.map((item) => ({ ...item, reflection: parse(item.reflectionJson, null) })), metrics: { ...(metrics ?? { visits: 0, signups: 0, paid: 0, conversion: 0, completedTasks: 0 }), yesterdayCompleted: (metrics as { completedTasks?: number } | null)?.completedTasks ?? 0 } }; }
 async function listUserWorkspaces(db: D1, userId: string) { const rows = await db.prepare("SELECT w.id, w.name FROM workspaces w INNER JOIN workspace_members m ON m.workspace_id = w.id WHERE m.user_id = ? ORDER BY w.created_at, w.id").bind(userId).all<{ id: string; name: string }>(); return Promise.all(rows.results.map(async (workspace) => { const product = await db.prepare("SELECT name, url, analysis_status AS analysisStatus FROM products WHERE workspace_id = ? ORDER BY id DESC LIMIT 1").bind(workspace.id).first<{ name: string; url: string; analysisStatus: string }>(); return { ...workspace, productName: product?.name ?? null, productUrl: product?.url ?? null, analysisStatus: product?.analysisStatus ?? null }; })); }
 async function workspacePayload(workspaceId: string, userId: string) { const platformConnections = await env.DB.prepare("SELECT provider, external_account_id AS externalAccountId, account_label AS accountLabel, status, expires_at AS expiresAt, last_sync_at AS lastSyncAt, metadata_json AS metadataJson FROM platform_connections WHERE workspace_id = ? ORDER BY provider").bind(workspaceId).all(); const connected = new Set(platformConnections.results.filter((item) => item.status === "connected").map((item) => item.provider)); return { ...(await snapshot(workspaceId)), workspaces: await listUserWorkspaces(env.DB, userId), platformConnections: platformConnections.results.map((item) => ({ ...item, metadata: parse(item.metadataJson, {}) })), publishing: { wordpress: connected.has("wordpress"), x: connected.has("x"), linkedin: connected.has("linkedin"), reddit: connected.has("reddit"), analytics: connected.has("ga4") || connected.has("posthog") || env.ATLAS_TRACKING_ENABLED === "1" }, oauthApps: oauthAppReadiness(env as Record<string, string | undefined>) }; }
 async function createProductWorkspace(db: D1, user: { id: string; name: string }, productName?: string) { const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`; const name = `${productName?.trim() || user.name || "New product"} Workspace`; await db.batch([db.prepare("INSERT INTO workspaces (id, name, created_by_user_id) VALUES (?, ?, ?)").bind(workspaceId, name, user.id), db.prepare("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, 'owner')").bind(workspaceId, user.id)]); await ensureWorkspaceAgent(db, workspaceId); return workspaceId; }
-async function runDailyReflection(db: D1, workspaceId: string) {
+async function runDailyReflection(db: D1, workspaceId: string, force = false) {
   const date = new Date().toISOString().slice(0, 10);
+  const existing = await db.prepare("SELECT id FROM daily_growth_snapshots WHERE workspace_id = ? AND snapshot_date = ?").bind(workspaceId, date).first<{ id: number }>();
+  if (existing && !force) return;
+  const product = await db.prepare("SELECT name, growth_goal AS growthGoal FROM products WHERE workspace_id = ? AND analysis_status = 'completed' ORDER BY id DESC LIMIT 1").bind(workspaceId).first<{ name: string; growthGoal: string | null }>();
+  if (!product) return;
+  const agentId = await ensureWorkspaceAgent(db, workspaceId);
   const metrics = await db.prepare("SELECT visits, signups, paid FROM metrics WHERE workspace_id = ? ORDER BY metric_date DESC, id DESC LIMIT 1").bind(workspaceId).first<{ visits: number; signups: number; paid: number }>();
   const campaign = await db.prepare("SELECT COALESCE(SUM(impressions), 0) AS impressions, COALESCE(SUM(clicks), 0) AS clicks, COALESCE(SUM(conversions), 0) AS conversions FROM campaign_assets WHERE workspace_id = ?").bind(workspaceId).first<{ impressions: number; clicks: number; conversions: number }>();
   const attributed = await db.prepare("SELECT COUNT(*) AS visits FROM marketing_events e WHERE e.event_name = 'page_view' AND e.utm_campaign IN (SELECT 'atlas_campaign_' || id FROM campaigns WHERE workspace_id = ?) AND substr(e.created_at, 1, 10) = ?").bind(workspaceId, date).first<{ visits: number }>();
+  const previous = await db.prepare("SELECT visits, signups, paid, attributed_visits AS attributedVisits FROM daily_growth_snapshots WHERE workspace_id = ? AND snapshot_date < ? ORDER BY snapshot_date DESC LIMIT 1").bind(workspaceId, date).first<{ visits: number; signups: number; paid: number; attributedVisits: number }>();
   const visits = metrics?.visits ?? 0; const signups = metrics?.signups ?? 0; const paid = metrics?.paid ?? 0; const attributedVisits = attributed?.visits ?? 0;
-  const reflection = { date, summary: campaign?.clicks ? "Campaign distribution is producing measurable traffic." : "No campaign clicks have been recorded yet.", signals: { impressions: campaign?.impressions ?? 0, clicks: campaign?.clicks ?? 0, conversions: campaign?.conversions ?? 0, attributedVisits }, nextAction: campaign?.impressions && !campaign.clicks ? "Review channel-message fit and CTA clarity." : "Continue the best-performing approved channel and collect another daily snapshot." };
-  await db.prepare("INSERT INTO daily_growth_snapshots (workspace_id, snapshot_date, visits, signups, paid, attributed_visits, attributed_signups, attributed_paid, reflection_json, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?) ON CONFLICT(workspace_id, snapshot_date) DO UPDATE SET visits = excluded.visits, signups = excluded.signups, paid = excluded.paid, attributed_visits = excluded.attributed_visits, reflection_json = excluded.reflection_json").bind(workspaceId, date, visits, signups, paid, attributedVisits, JSON.stringify(reflection), nowText()).run();
+  const impressions = campaign?.impressions ?? 0; const clicks = campaign?.clicks ?? 0; const conversions = campaign?.conversions ?? 0;
+  const reflection = buildGrowthReflection({ date, goal: product.growthGoal, visits, signups, paid, impressions, clicks, conversions, attributedVisits, previous });
+  const { summary, nextAction } = reflection;
+  const started = nowText();
+  await db.batch([
+    db.prepare("INSERT INTO daily_growth_snapshots (workspace_id, snapshot_date, visits, signups, paid, attributed_visits, attributed_signups, attributed_paid, reflection_json, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?) ON CONFLICT(workspace_id, snapshot_date) DO UPDATE SET visits = excluded.visits, signups = excluded.signups, paid = excluded.paid, attributed_visits = excluded.attributed_visits, reflection_json = excluded.reflection_json").bind(workspaceId, date, visits, signups, paid, attributedVisits, JSON.stringify(reflection), started),
+    db.prepare("INSERT INTO agent_tasks (workspace_id, agent_id, title, description, task_type, priority, risk_level, status, requires_approval, expected_outcome, estimated_minutes, evidence, created_at) SELECT ?, ?, ?, ?, 'daily_growth_action', 1, 1, 'queued', 0, ?, 30, ?, ? WHERE NOT EXISTS (SELECT 1 FROM agent_tasks WHERE workspace_id = ? AND task_type = 'daily_growth_action' AND substr(created_at, 1, 10) = ?)").bind(workspaceId, agentId, nextAction, summary, "Advance the current growth goal with a measurable action", JSON.stringify([`Daily snapshot ${date}`, `${impressions} impressions`, `${clicks} clicks`, `${conversions} conversions`]), started, workspaceId, date),
+    db.prepare("INSERT INTO agent_runs (workspace_id, agent_id, task_id, task, status, input, output, tools, started_at, finished_at, result) VALUES (?, ?, NULL, 'Daily Growth Reflection', 'completed', ?, ?, ?, ?, ?, 'Success · Daily plan updated')").bind(workspaceId, agentId, `Metrics and campaign results for ${date}`, summary, JSON.stringify(["GrowthSnapshotTool", "AttributionTool", "ReflectionTool", "TaskPlannerTool"]), started, started),
+    db.prepare("INSERT INTO memories (workspace_id, memory_type, title, content, source, confidence, status, last_verified_at) SELECT ?, 'Growth learning', ?, ?, 'Daily Growth Reflection', ?, 'validated', ? WHERE NOT EXISTS (SELECT 1 FROM memories WHERE workspace_id = ? AND source = 'Daily Growth Reflection' AND substr(last_verified_at, 1, 10) = ?)").bind(workspaceId, `Growth reflection · ${date}`, `${summary}\n\nNext action: ${nextAction}`, visits === 0 && impressions === 0 && attributedVisits === 0 ? 55 : 78, started, workspaceId, date),
+    db.prepare("UPDATE agents SET status = 'running', description = 'Observes product and campaign signals, creates a daily growth reflection, plans measurable next actions, and asks for approval before external actions.', schedule = 'Daily reflection · continuous planning', current_task = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(nextAction, started, agentId, workspaceId),
+  ]);
 }
 async function deleteProductWorkspace(db: D1, workspaceId: string, user: { id: string; name: string }) {
   const ownership = await db.prepare("SELECT w.id FROM workspaces w INNER JOIN workspace_members m ON m.workspace_id = w.id WHERE w.id = ? AND w.created_by_user_id = ? AND m.user_id = ? AND m.role = 'owner'").bind(workspaceId, user.id, user.id).first<{ id: string }>();
@@ -121,6 +138,7 @@ export async function GET(request: Request) {
     const { user, workspaceId } = await getWorkspace(request);
     await ensureDevSeed(env.DB, workspaceId);
     await recoverStaleAnalysis(env.DB, workspaceId);
+    await runDailyReflection(env.DB, workspaceId);
     return Response.json(await workspacePayload(workspaceId, user.id));
   } catch (error) {
     if (error instanceof Response) return error;
@@ -142,7 +160,7 @@ export async function POST(request: Request) {
       return Response.json({ deletedWorkspaceId: workspaceId, ...result });
     }
     if (body.action === "run_daily_reflection") {
-      await runDailyReflection(db, workspaceId);
+      await runDailyReflection(db, workspaceId, true);
       return Response.json(await workspacePayload(workspaceId, user.id));
     }
     if (body.action === "create_campaign") {

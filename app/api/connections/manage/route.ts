@@ -3,7 +3,7 @@ import { getAuthenticatedUser, resolveCloudflareDoh, resolvePublicAddresses, val
 import { encryptConnectionSecret } from "../../../../lib/connection-vault";
 
 export const dynamic = "force-dynamic";
-async function workspace(request: Request, workspaceId: string) { const user = await getAuthenticatedUser(request.headers, env as Record<string, string | undefined>); if (!user) throw new Response("Authentication required", { status: 401 }); const member = await env.DB.prepare("SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?").bind(workspaceId, user.id).first(); if (!member) throw new Response("Workspace access denied", { status: 403 }); return user; }
+async function workspace(request: Request, workspaceId: string) { const user = await getAuthenticatedUser(request.headers, env as Record<string, string | undefined>, env.DB); if (!user) throw new Response("Authentication required", { status: 401 }); const member = await env.DB.prepare("SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?").bind(workspaceId, user.id).first(); if (!member) throw new Response("Workspace access denied", { status: 403 }); return user; }
 
 export async function POST(request: Request) {
   try {

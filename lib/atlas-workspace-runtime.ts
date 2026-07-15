@@ -8,7 +8,7 @@ const growthOperatorTools = JSON.stringify(["SafeFetchWebsiteTool", "LLMAnalyzeP
 export async function ensureWorkspaceAgent(db: WorkspaceDb, workspaceId: string) {
   const existing = await db.prepare("SELECT id FROM agents WHERE workspace_id = ? AND role = ? ORDER BY id LIMIT 1").bind(workspaceId, "Growth Operator").first<{ id: number }>();
   if (existing) return existing.id;
-  const created = await db.prepare("INSERT INTO agents (workspace_id, name, role, description, status, autonomy_level, schedule, success_rate, current_task, tools) VALUES (?, 'Growth Operator', 'Growth Operator', 'Observes public product data, plans growth actions, and asks for approval before external actions.', 'running', 2, 'On demand analysis · daily planning', 0, 'Waiting for product analysis', ?) RETURNING id").bind(workspaceId, growthOperatorTools).first<{ id: number }>();
+  const created = await db.prepare("INSERT INTO agents (workspace_id, name, role, description, status, autonomy_level, schedule, success_rate, current_task, tools) VALUES (?, 'Growth Operator', 'Growth Operator', 'Observes product and campaign signals, creates a daily growth reflection, plans measurable next actions, and asks for approval before external actions.', 'running', 2, 'Daily reflection · continuous planning', 0, 'Waiting for product analysis', ?) RETURNING id").bind(workspaceId, growthOperatorTools).first<{ id: number }>();
   if (!created) throw new Error("Analysis failed. Please retry later.");
   return created.id;
 }

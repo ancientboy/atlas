@@ -1,3 +1,5 @@
+import { atlasSessionCookie, hashAuthToken, readCookie } from "./atlas-auth.ts";
+
 export type AuthenticatedUser = { id: string; email: string; name: string };
 export type ProductAnalysisCore = { summary: string; valueProposition: string; icp: string; pains: string[]; useCases: string[]; competitors: string[]; channels: string[]; nextBestActions: { title: string; description: string; expectedOutcome: string }[]; opportunities: { title: string; summary: string; suggestedAction: string; signal: string; confidence: number }[] };
 export type ProductAnalysis = ProductAnalysisCore & { contentLanguage?: "zh" | "en"; translation?: ProductAnalysisCore };
@@ -11,13 +13,19 @@ const authEmailHeader = "oai-authenticated-user-email";
 const authNameHeader = "oai-authenticated-user-full-name";
 const authEncodingHeader = "oai-authenticated-user-full-name-encoding";
 
-export async function getAuthenticatedUser(headers: Headers, env: Record<string, string | undefined>): Promise<AuthenticatedUser | null> {
+export async function getAuthenticatedUser(headers: Headers, env: Record<string, string | undefined>, db?: D1Database): Promise<AuthenticatedUser | null> {
   const email = headers.get(authEmailHeader);
   if (email) {
     const platformId = headers.get(authIdHeader);
     const encodedName = headers.get(authNameHeader);
     const name = encodedName && headers.get(authEncodingHeader) === "percent-encoded-utf-8" ? safeDecode(encodedName) ?? email : email;
-    return { id: platformId ? `platform_${await digestId(platformId)}` : await stableUserId(email, env.ATLAS_USER_ID_SECRET), email, name };
+    const existing = db ? await db.prepare("SELECT id, email, name FROM users WHERE lower(email) = lower(?) LIMIT 1").bind(email).first<{ id: string; email: string; name: string | null }>() : null;
+    return existing ? { id: existing.id, email: existing.email, name: existing.name || name } : { id: platformId ? `platform_${await digestId(platformId)}` : await stableUserId(email, env.ATLAS_USER_ID_SECRET), email, name };
+  }
+  const sessionToken = readCookie(headers, atlasSessionCookie);
+  if (sessionToken && db) {
+    const session = await db.prepare("SELECT u.id, u.email, u.name FROM atlas_auth_sessions s INNER JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND datetime(s.expires_at) > datetime('now') LIMIT 1").bind(await hashAuthToken(sessionToken)).first<{ id: string; email: string; name: string | null }>();
+    if (session) return { id: session.id, email: session.email, name: session.name || session.email };
   }
   if (env.ATLAS_DEV_DEMO === "1" && env.NODE_ENV !== "production") return { id: "dev-demo-user", email: "demo@lumeword.local", name: "Demo Founder" };
   return null;
@@ -69,5 +77,5 @@ function validString(v: unknown, min = 1, max = 1200) { return typeof v === "str
 function stringArray(v: unknown, min: number, max: number, itemMax = 300) { return Array.isArray(v) && v.length >= min && v.length <= max && v.every((x) => validString(x, 1, itemMax)); }
 function validateAnalysisCore(value: unknown): ProductAnalysisCore { const x = value as ProductAnalysisCore; if (!x || typeof x !== "object") throw new Error("Invalid analysis format."); if (!validString(x.summary) || !validString(x.valueProposition) || !validString(x.icp)) throw new Error("Invalid analysis strings."); if (!stringArray(x.pains, 1, 8) || !stringArray(x.useCases, 1, 8) || !stringArray(x.competitors, 1, 8) || !stringArray(x.channels, 1, 8)) throw new Error("Invalid analysis arrays."); if (!Array.isArray(x.nextBestActions) || x.nextBestActions.length !== 3 || !x.nextBestActions.every((a) => validString(a.title, 1, 160) && validString(a.description, 1, 500) && validString(a.expectedOutcome, 1, 240))) throw new Error("Invalid next best actions."); if (!Array.isArray(x.opportunities) || x.opportunities.length < 1 || x.opportunities.length > 3 || !x.opportunities.every((o) => validString(o.title, 1, 160) && validString(o.summary, 1, 500) && validString(o.suggestedAction, 1, 240) && validString(o.signal, 1, 80) && Number.isInteger(o.confidence) && o.confidence >= 0 && o.confidence <= 100)) throw new Error("Invalid opportunities."); return x; }
 export function validateProductAnalysis(value: unknown): ProductAnalysis { const x = validateAnalysisCore(value) as ProductAnalysis; if (x.contentLanguage !== undefined) { if (x.contentLanguage !== "zh" && x.contentLanguage !== "en") throw new Error("Invalid analysis language."); x.translation = validateAnalysisCore(x.translation); } return x; }
-export function safeClientError(error: unknown) { const message = error instanceof Error ? error.message : "Request failed."; if (/Missing server LLM key|server LLM API key|Custom LLM provider|LLM_BASE_URL|LLM provider host|LLM provider returned HTTP|http\/https|credentials|ports 80 and 443|Private|metadata|HTML|exceeds|already running|rate limit|Invalid analysis|LLM request timed out|LLM response body exceeds|Trusted DNS resolver|Hostname|Product page fetch failed|Workspace initialization failed|Workspace save failed|workspace owner|current analysis/.test(message)) return message; return "Analysis failed. Please retry later."; }
+export function safeClientError(error: unknown) { const message = error instanceof Error ? error.message : "Request failed."; if (/Missing server LLM key|server LLM API key|Custom LLM provider|LLM_BASE_URL|LLM provider host|LLM provider returned HTTP|http\/https|credentials|ports 80 and 443|Private|metadata|HTML|exceeds|already running|rate limit|Invalid analysis|Invalid campaign|LLM request timed out|LLM response body exceeds|Trusted DNS resolver|Hostname|Product page fetch failed|Workspace initialization failed|Workspace save failed|Campaign initialization failed|Campaign save failed|Campaign source|campaign channel|workspace owner|current analysis/.test(message)) return message; return "Analysis failed. Please retry later."; }
 export function rateLimitKey(userId: string, workspaceId: string) { const minute = Math.floor(Date.now() / 60000); return `${minute}:${userId}:${workspaceId}`; }

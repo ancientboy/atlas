@@ -24,10 +24,35 @@ test("return_to is sanitized before Sites sign-in redirects", () => {
 test("login route handles authenticated and unauthenticated destinations", async () => {
   const loginPage = await readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8");
   assert.match(loginPage, /getChatGPTUser/);
-  assert.match(loginPage, /redirect\(user \? "\/app" : chatGPTSignInPath\(returnTo\)\)/);
+  assert.match(loginPage, /AtlasLogin/);
+  assert.match(loginPage, /safeRelativeReturnPath/);
 });
 
-test("app and onboarding are protected by Sites ChatGPT auth", async () => {
+test("public self-serve auth supports email magic links and Google with one Atlas session", async () => {
+  const [login, emailStart, emailVerify, googleStart, googleCallback, migration, validation] = await Promise.all([
+    readFile(new URL("../components/atlas-login.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/email/start/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/email/verify/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/google/start/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/google/callback/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0006_atlas_multi_provider_auth.sql", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/validate-artifact.sh", import.meta.url), "utf8"),
+  ]);
+  assert.match(login, /api\/auth\/email\/start/);
+  assert.match(login, /api\/auth\/google\/start/);
+  assert.match(login, /signin-with-chatgpt/);
+  assert.match(emailStart, /RESEND_API_KEY/);
+  assert.match(emailStart, /15 minutes/);
+  assert.match(emailVerify, /findOrCreateUser/);
+  assert.match(googleStart, /openid email profile/);
+  assert.match(googleCallback, /email_verified/);
+  assert.match(googleCallback, /createAuthSession/);
+  assert.match(migration, /atlas_auth_sessions/);
+  assert.match(migration, /atlas_auth_challenges/);
+  assert.match(validation, /0006_atlas_multi_provider_auth\.sql/);
+});
+
+test("app and onboarding are protected by unified Atlas auth with Sites identity support", async () => {
   const [appPage, onboardingPage, auth, authPaths] = await Promise.all([
     readFile(new URL("../app/app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/onboarding/page.tsx", import.meta.url), "utf8"),
@@ -39,7 +64,7 @@ test("app and onboarding are protected by Sites ChatGPT auth", async () => {
   assert.match(onboardingPage, /newProduct = params\.new === "1"/);
   assert.match(authPaths, /signin-with-chatgpt/);
   assert.match(authPaths, /signout-with-chatgpt/);
-  assert.match(auth, /oai-authenticated-user-email/);
+  assert.match(auth, /getAuthenticatedUser/);
 });
 
 test("completed/running/failed onboarding states route or allow retry correctly", () => {

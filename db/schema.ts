@@ -391,3 +391,15 @@ export const dailyGrowthSnapshots = sqliteTable("daily_growth_snapshots", {
   reflectionJson: text("reflection_json"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const atlasAuthSessions = sqliteTable("atlas_auth_sessions", {
+  tokenHash: text("token_hash").primaryKey(), userId: text("user_id").notNull(), provider: text("provider").notNull(), expiresAt: text("expires_at").notNull(), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`), lastSeenAt: text("last_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const atlasAuthChallenges = sqliteTable("atlas_auth_challenges", {
+  tokenHash: text("token_hash").primaryKey(), kind: text("kind").notNull(), email: text("email"), returnTo: text("return_to").notNull().default("/app"), expiresAt: text("expires_at").notNull(), usedAt: text("used_at"), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const atlasAuthIdentities = sqliteTable("atlas_auth_identities", {
+  provider: text("provider").notNull(), providerSubject: text("provider_subject").notNull(), userId: text("user_id").notNull(), email: text("email").notNull(), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`), updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});

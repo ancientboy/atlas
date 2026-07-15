@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { chatGPTSignInPathFor, safeRelativeReturnPath } from "../lib/auth-paths.ts";
-import { onboardingCanSubmit, onboardingDestination, workspaceDestination, workspaceErrorMessage } from "../lib/route-state.ts";
+import { analysisProgress, analysisStage, onboardingCanSubmit, onboardingDestination, workspaceDestination, workspaceErrorMessage } from "../lib/route-state.ts";
 
 test("public home stays the full Atlas website and uses in-site auth routes", async () => {
   const home = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
@@ -35,7 +35,8 @@ test("app and onboarding are protected by Sites ChatGPT auth", async () => {
     readFile(new URL("../lib/auth-paths.ts", import.meta.url), "utf8"),
   ]);
   assert.match(appPage, /requireChatGPTUser\("\/app"\)/);
-  assert.match(onboardingPage, /requireChatGPTUser\("\/onboarding"\)/);
+  assert.match(onboardingPage, /requireChatGPTUser\(returnTo\)/);
+  assert.match(onboardingPage, /newProduct = params\.new === "1"/);
   assert.match(authPaths, /signin-with-chatgpt/);
   assert.match(authPaths, /signout-with-chatgpt/);
   assert.match(auth, /oai-authenticated-user-email/);
@@ -48,6 +49,14 @@ test("completed/running/failed onboarding states route or allow retry correctly"
   assert.equal(onboardingCanSubmit("pending"), false);
   assert.equal(onboardingCanSubmit("failed"), true);
   assert.equal(onboardingCanSubmit(undefined), true);
+});
+
+test("analysis progress maps real backend stages and never claims completion early", () => {
+  assert.equal(analysisStage("Fetching public website"), "fetching");
+  assert.equal(analysisStage("Rendering product website"), "rendering");
+  assert.equal(analysisStage("Analyzing product with LLM"), "analyzing");
+  assert.equal(analysisStage("Saving workspace"), "saving");
+  assert.deepEqual(["starting", "fetching", "rendering", "analyzing", "saving"].map(analysisProgress), [8, 22, 42, 70, 92]);
 });
 
 test("workspace routes incomplete products and exposes retryable safe errors", () => {
@@ -63,4 +72,39 @@ test("workspace failure UI has an alert and Retry button", async () => {
   assert.match(dashboard, /role="alert"/);
   assert.match(dashboard, /Retry/);
   assert.match(dashboard, /loadError/);
+});
+
+test("completed onboarding opens the Product Intelligence report and dashboard exposes it in navigation", async () => {
+  const [onboarding, dashboard] = await Promise.all([
+    readFile(new URL("../components/atlas-onboarding.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(onboarding, /\/app\?view=product-intelligence/);
+  assert.match(onboarding, /product: \{ \.\.\.product, locale \}/);
+  assert.match(dashboard, /id: "product-intelligence"/);
+  assert.match(dashboard, /function ProductIntelligence/);
+  assert.match(dashboard, /analysis\.translation/);
+});
+
+test("multiple products use isolated workspaces with a sidebar switcher and add-product flow", async () => {
+  const [route, onboarding, dashboard] = await Promise.all([
+    readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-onboarding.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /action === "create_workspace"/);
+  assert.match(route, /action === "delete_workspace"/);
+  assert.match(route, /Only the workspace owner can delete/);
+  assert.match(route, /DELETE FROM products WHERE workspace_id = \?/);
+  assert.match(route, /crypto\.randomUUID/);
+  assert.match(route, /INSERT INTO workspace_members/);
+  assert.match(route, /listUserWorkspaces/);
+  assert.match(onboarding, /newProductFlow/);
+  assert.match(onboarding, /action: "create_workspace"/);
+  assert.match(dashboard, /workspace-switcher/);
+  assert.match(dashboard, /atlas-workspace-id/);
+  assert.match(dashboard, /\/onboarding\?new=1/);
+  assert.match(dashboard, /delete-workspace/);
+  assert.match(dashboard, /window\.confirm/);
+  assert.match(onboarding, /window\.location\.replace\(`\/app\?view=product-intelligence/);
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import "./marketing.css";
+
 import { FormEvent, useState } from "react";
 
 const Arrow = ({ diagonal = false }: { diagonal?: boolean }) => (
@@ -27,7 +29,7 @@ export default function Home() {
   }
 
   return (
-    <main lang={zh ? "zh-CN" : "en"}>
+    <main className="marketing-site" lang={zh ? "zh-CN" : "en"}>
       <nav className="nav wrap" aria-label="Primary navigation">
         <a className="brand" href="#top" aria-label="LumeWord home">
           <Mark />

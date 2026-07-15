@@ -8,6 +8,20 @@ export function onboardingCanSubmit(status?: string): boolean {
   return status !== "pending" && status !== "running";
 }
 
+export type AnalysisStage = "starting" | "fetching" | "rendering" | "analyzing" | "saving";
+
+export function analysisStage(output?: string): AnalysisStage {
+  if (output === "Rendering product website") return "rendering";
+  if (output === "Analyzing product with LLM") return "analyzing";
+  if (output === "Saving workspace") return "saving";
+  if (output === "Fetching public website") return "fetching";
+  return "starting";
+}
+
+export function analysisProgress(stage: AnalysisStage): number {
+  return { starting: 8, fetching: 22, rendering: 42, analyzing: 70, saving: 92 }[stage];
+}
+
 export function workspaceDestination(state: ProductRouteState): "/onboarding" | null {
   return state.product?.analysisStatus === "completed" ? null : "/onboarding";
 }

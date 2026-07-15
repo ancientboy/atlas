@@ -58,13 +58,34 @@ test("custom provider retries without response_format when unsupported and valid
   assert.equal(result.summary, validAnalysis.summary);
 });
 
+test("custom provider falls back to required SSE streaming and still validates JSON", async () => {
+  const calls = [];
+  const json = JSON.stringify(validAnalysis);
+  const split = Math.floor(json.length / 2);
+  const stream = [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: json.slice(0, split) } }] })}`,
+    `data: ${JSON.stringify({ choices: [{ delta: { content: json.slice(split) } }] })}`,
+    "data: [DONE]",
+    "",
+  ].join("\n");
+  const result = await analyzeProductWithLlm(product, page, { LLM_BASE_URL: "https://llm.example.com/v1", LLM_API_KEY: "secret-key", LLM_MODEL: "custom-model" }, async (_url, init) => {
+    calls.push(JSON.parse(init.body));
+    if (calls.length < 3) return Response.json({ detail: "Stream must be set to true" }, { status: 400 });
+    return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+  }, resolver);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].stream, true);
+  assert.equal(calls[2].response_format, undefined);
+  assert.equal(result.summary, validAnalysis.summary);
+});
+
 test("keys are not included in safe client errors", async () => {
   await assert.rejects(
     () => analyzeProductWithLlm(product, page, { OPENAI_API_KEY: "sk-super-secret", OPENAI_MODEL: "gpt-4o-mini" }, async () => new Response("sk-super-secret upstream", { status: 500 })),
     (error) => {
       const message = safeClientError(error);
       assert.equal(message.includes("sk-super-secret"), false);
-      assert.equal(message, "Analysis failed. Please retry later.");
+      assert.equal(message, "LLM provider returned HTTP 500.");
       return true;
     },
   );
@@ -75,11 +96,47 @@ test("invalid JSON or invalid schema is rejected", () => {
   assert.throws(() => parseLlmResponse({ choices: [{ message: { content: JSON.stringify({ summary: "x" }) } }] }), /Invalid analysis/);
 });
 
+test("minor provider type differences are normalized before schema validation", () => {
+  const providerAnalysis = structuredClone(validAnalysis);
+  providerAnalysis.opportunities[0].confidence = "82%";
+  const result = parseLlmResponse({ choices: [{ message: { content: JSON.stringify(providerAnalysis) } }] });
+  assert.equal(result.opportunities[0].confidence, 82);
+});
+
+test("bilingual product intelligence is validated and language intent reaches the LLM", async () => {
+  const bilingual = { ...structuredClone(validAnalysis), contentLanguage: "zh", translation: structuredClone(validAnalysis) };
+  const parsed = parseLlmResponse({ choices: [{ message: { content: JSON.stringify(bilingual) } }] });
+  assert.equal(parsed.contentLanguage, "zh");
+  assert.equal(parsed.translation.summary, validAnalysis.summary);
+  let requestBody;
+  await analyzeProductWithLlm({ ...product, locale: "zh" }, page, { OPENAI_API_KEY: "openai-key", OPENAI_MODEL: "gpt-4o-mini" }, async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return Response.json({ choices: [{ message: { content: JSON.stringify(bilingual) } }] });
+  });
+  assert.match(requestBody.messages[1].content, /Simplified Chinese/);
+  assert.match(requestBody.messages[1].content, /translation/);
+});
+
 test("LLM requests time out safely", async () => {
   await assert.rejects(
     () => analyzeProductWithLlm(product, page, { OPENAI_API_KEY: "openai-key", OPENAI_MODEL: "gpt-4o-mini", LLM_TIMEOUT_MS: "1" }, (_url, init) => new Promise((_resolve, reject) => {
       init.signal.addEventListener("abort", () => reject(new Error("aborted by signal")));
     })),
+    /LLM request timed out/,
+  );
+});
+
+test("LLM timeout covers an SSE response body that never finishes", async () => {
+  await assert.rejects(
+    () => analyzeProductWithLlm(product, page, { OPENAI_API_KEY: "openai-key", OPENAI_MODEL: "gpt-4o-mini", LLM_TIMEOUT_MS: "5" }, async (_url, init) => {
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"{"}}]}\n\n'));
+          init.signal.addEventListener("abort", () => controller.error(new Error("aborted by signal")));
+        },
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }),
     /LLM request timed out/,
   );
 });

@@ -84,7 +84,7 @@ npm test
 
 ## Intentional prototype boundaries
 
-This V2 slice includes workspace isolation, onboarding, and a Product Analysis Agent that safely fetches public product pages after DoH/IP validation. Other connectors are still mocked: Atlas does **not** yet publish to social networks, alter a live landing page, run a cron scheduler, or perform real external actions. Level 3 actions remain manual by design.
+This V2 slice includes workspace isolation, onboarding, and a reusable Website Reader used by the Product Analysis Agent. The reader validates the target with trusted DoH/IP checks, attempts a bounded direct HTML fetch, then falls back to Jina Reader's rendered Markdown extraction for blocked or JavaScript-heavy public pages. If both methods fail, onboarding can still use user-provided product context. Private, reserved, metadata, credential-bearing, and non-web targets remain blocked before retrieval. Other connectors are still mocked: Atlas does **not** yet publish to social networks, alter a live landing page, run a cron scheduler, or perform real external actions. Level 3 actions remain manual by design.
 
 ## Recommended next implementation steps
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzeProductWithLlm, llmChatCompletionsEndpoint, parseLlmResponse, resolveLlmProvider } from "../lib/llm-provider.ts";
+import { analyzeProductWithLlm, generateGrowthCampaignWithLlm, llmChatCompletionsEndpoint, parseLlmResponse, resolveLlmProvider } from "../lib/llm-provider.ts";
 import { safeClientError } from "../lib/atlas-runtime.ts";
 
 const validAnalysis = {
@@ -146,4 +146,15 @@ test("oversized LLM responses are rejected before JSON parsing", async () => {
     () => analyzeProductWithLlm(product, page, { OPENAI_API_KEY: "openai-key", OPENAI_MODEL: "gpt-4o-mini", LLM_RESPONSE_LIMIT_BYTES: "8" }, async () => Response.json({ choices: [{ message: { content: JSON.stringify(validAnalysis) } }] })),
     /LLM response body exceeds the allowed size/,
   );
+});
+
+test("Growth Campaign Agent validates one generated asset per requested channel", async () => {
+  const draft = { name: "Founder launch", objective: "Qualified visits", audience: "AI founders", coreMessage: "Ship growth work", offer: "A focused workflow", cta: "Try Atlas", assets: [
+    { channel: "x", title: "A concise launch", content: "Turn one growth signal into the next useful action.", cta: "Try Atlas" },
+    { channel: "blog", title: "From signal to execution", content: "A structured campaign article with a clear, useful point of view.", cta: "Try Atlas" },
+  ] };
+  const result = await generateGrowthCampaignWithLlm({ product: { name: "Atlas" }, opportunity: { title: "Founder story" }, objective: "Qualified visits", channels: ["x", "blog"], locale: "en" }, { OPENAI_API_KEY: "openai-key" }, async () => Response.json({ choices: [{ message: { content: JSON.stringify(draft) } }] }));
+  assert.equal(result.assets.length, 2);
+  assert.deepEqual(result.assets.map((asset) => asset.channel), ["x", "blog"]);
+  await assert.rejects(() => generateGrowthCampaignWithLlm({ product: {}, opportunity: {}, objective: "Visits", channels: ["x", "blog"], locale: "en" }, { OPENAI_API_KEY: "openai-key" }, async () => Response.json({ choices: [{ message: { content: JSON.stringify({ ...draft, assets: draft.assets.slice(0, 1) }) } }] })), /Invalid campaign assets/);
 });

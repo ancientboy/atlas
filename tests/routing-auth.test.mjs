@@ -129,3 +129,23 @@ test("Growth Campaign Agent turns workspace opportunities into approval-gated ch
   assert.match(migration, /CREATE TABLE IF NOT EXISTS campaign_assets/);
   assert.match(validation, /0003_growth_campaign_agent\.sql/);
 });
+
+test("Content Studio supports platform previews, safe editing, regeneration, and manual publishing", async () => {
+  const [route, dashboard, styles] = await Promise.all([
+    readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /action === "update_campaign_asset"/);
+  assert.match(route, /action === "regenerate_campaign_asset"/);
+  assert.match(route, /status = 'pending_approval'/);
+  assert.match(route, /status = 'pending', approved_by = NULL/);
+  assert.match(dashboard, /function ContentStudioAsset/);
+  assert.match(dashboard, /function PlatformPreview/);
+  assert.match(dashboard, /Export Markdown/);
+  assert.match(dashboard, /Mark published/);
+  assert.match(dashboard, /does not auto-publish yet/);
+  assert.match(styles, /\.x-preview/);
+  assert.match(styles, /\.linkedin-preview/);
+  assert.match(styles, /\.blog-preview/);
+});

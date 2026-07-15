@@ -22,3 +22,23 @@ test("Atlas product shell and durable data model are present", async () => {
   assert.equal(JSON.parse(hosting).d1, "DB");
   assert.doesNotMatch(layout, /codex-preview|Starter Project/);
 });
+
+test("workspace account menu keeps profile, identities, sessions, and sign-out together", async () => {
+  const [dashboard, accountMenu, accountApi] = await Promise.all([
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/account-menu.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/account/route.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(dashboard, /<AccountMenu/);
+  assert.doesNotMatch(dashboard, /className="v2-user-menu"/);
+  assert.match(accountMenu, /账户设置/);
+  assert.match(accountMenu, /登录方式与安全/);
+  assert.match(accountMenu, /action="\/api\/auth\/logout"/);
+  assert.match(accountMenu, /revoke_other_sessions/);
+  assert.match(accountMenu, /createPortal/);
+  assert.match(accountMenu, /document\.body/);
+  assert.match(accountApi, /getAuthenticatedUser/);
+  assert.match(accountApi, /atlas_auth_identities/);
+  assert.match(accountApi, /token_hash <> \?/);
+});

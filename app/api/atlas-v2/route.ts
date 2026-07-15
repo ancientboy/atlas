@@ -3,6 +3,7 @@ import { atlasV2Seed } from "../../../lib/atlas-v2-data";
 import { createProductAnalysisRecords, ensureWorkspaceAgent } from "../../../lib/atlas-workspace-runtime";
 import { getAuthenticatedUser, rateLimitKey, safeClientError, validatePublicUrl, type ProductAnalysis } from "../../../lib/atlas-runtime";
 import { analyzeProductWithLlm, generateGrowthCampaignWithLlm } from "../../../lib/llm-provider";
+import { normalizePublishedUrl } from "../../../lib/campaign-tracking";
 import { readProductWebsite } from "../../../lib/website-reader";
 
 export const dynamic = "force-dynamic";
@@ -128,9 +129,11 @@ export async function POST(request: Request) {
     }
     if (body.action === "mark_campaign_asset_published") {
       if (!body.id) return Response.json({ error: "Campaign asset is required." }, { status: 400 });
+      let publishedUrl: string;
+      try { publishedUrl = normalizePublishedUrl(body.publishedUrl); } catch { return Response.json({ error: "A valid HTTPS published URL is required for manual publishing." }, { status: 400 }); }
       const asset = await db.prepare("SELECT id FROM campaign_assets WHERE id = ? AND workspace_id = ? AND status = 'approved'").bind(body.id, workspaceId).first();
       if (!asset) return Response.json({ error: "Approve this campaign asset before marking it published." }, { status: 400 });
-      await db.batch([db.prepare("UPDATE campaign_assets SET status = 'published', published_url = ?, published_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(body.publishedUrl?.trim() || null, nowText(), nowText(), body.id, workspaceId), db.prepare("UPDATE campaigns SET status = 'active', updated_at = ? WHERE id = (SELECT campaign_id FROM campaign_assets WHERE id = ? AND workspace_id = ?) AND workspace_id = ?").bind(nowText(), body.id, workspaceId, workspaceId)]);
+      await db.batch([db.prepare("UPDATE campaign_assets SET status = 'published', published_url = ?, published_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(publishedUrl, nowText(), nowText(), body.id, workspaceId), db.prepare("UPDATE campaigns SET status = 'active', updated_at = ? WHERE id = (SELECT campaign_id FROM campaign_assets WHERE id = ? AND workspace_id = ?) AND workspace_id = ?").bind(nowText(), body.id, workspaceId, workspaceId)]);
       return Response.json(await workspacePayload(workspaceId, user.id));
     }
     if (body.action === "update_campaign_asset") {

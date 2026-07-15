@@ -13,7 +13,7 @@ The app defaults to Chinese and has a true Chinese/English interface switch. His
 - **Activity / 执行记录**: auditable agent run history with input, output, tools, and result.
 - **Opportunities / 增长机会**: discovered topics, keyword movement, and competitor signals; save or ignore persists to D1.
 - **Memory / 公司记忆**: decisions and learned preferences with source, confidence, and verification time.
-- **Agents / 数字员工**: Growth Operator and Reflection Agent profiles.
+- **Agents / 数字员工**: Growth Operator and Campaign Agent profiles with a daily continuous growth loop.
 - **Connections / 连接**: mock connections showing the future observe/execute boundary.
 - **Official publishing / 官方发布**: approval-gated, idempotent publishing adapters for WordPress, X, LinkedIn, and Reddit. Xiaohongshu stays manual unless an approved account API is available.
 - **Attribution & reflection / 归因与复盘**: stable UTM links, privacy-minimized first-party events, daily growth snapshots, and an on-demand Reflection Agent run.
@@ -39,7 +39,13 @@ V2 database entities are workspace-scoped and include `users`, `workspaces`, `wo
 
 Atlas application credentials are server-only. Configure the OAuth Client ID/Secret variables and the 32-byte `CONNECTION_ENCRYPTION_KEY` documented in `.env.example`. Each user connects their own X, LinkedIn, Reddit, or WordPress account from the Workspace Connections page. Access and refresh tokens are encrypted per Workspace in D1; the browser receives only account labels, expiry/readiness metadata, and never tokens or passwords. WordPress defaults to creating drafts. Every automatic publish still requires an approved campaign asset and is protected by a stable idempotency key, bounded retries, and a stored public receipt.
 
-Sites can invoke `run_daily_reflection` after analytics synchronization. The current UI also exposes a safe “run today’s reflection” action. A platform scheduler may call the same action once per workspace; the daily snapshot upsert makes repeated runs safe.
+Atlas creates one daily reflection per completed Workspace when it becomes active, and the UI also exposes a safe manual refresh. Daily snapshots are upserted and daily action creation is idempotent.
+
+## Account sign-in
+
+Atlas supports three identities that converge on the same `users` row and Workspace membership: trusted ChatGPT Sites identity, email magic links delivered by Resend, and Google OAuth. First successful email or Google authentication creates the account automatically. Existing users are matched by normalized verified email so changing sign-in method does not create another product Workspace. Sessions use random opaque tokens; only SHA-256 hashes are stored in D1, cookies are `HttpOnly`, `Secure`, and `SameSite=Lax`, and email/OAuth challenges expire after 15 minutes.
+
+Configure `ATLAS_APP_URL`, `RESEND_API_KEY`, `AUTH_EMAIL_FROM`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` as server-only Sites environment variables. The Google Web OAuth redirect URI must exactly match `https://atlas.lumeword.com/api/auth/google/callback`.
 
 ## Start locally
 
@@ -78,7 +84,7 @@ All LLM keys are read only on the server. They must not be sent to the browser, 
 
 `ATLAS_DNS_RESOLVER` must be a DNS-over-HTTPS JSON endpoint compatible with Cloudflare's format. Atlas sends `GET` requests with `Accept: application/dns-json` and query parameters `name=<hostname>&type=A` and `name=<hostname>&type=AAAA`, then reads `Answer[]` records where `type` is `1` (A) or `28` (AAAA). DNS failures, malformed responses, hostnames with no A/AAAA records, and private/reserved resolved addresses are rejected before any page fetch or custom LLM request.
 
-Authentication in this private Alpha depends on trusted Sites identity headers (`oai-authenticated-user-*`) being injected by the hosting layer. This PR does not implement public self-serve registration.
+ChatGPT login continues to trust only Sites identity headers (`oai-authenticated-user-*`). Public self-serve registration uses verified email magic links or verified Google email identity; Atlas never stores user passwords.
 
 ## Verification
 
@@ -98,4 +104,4 @@ This V2 slice includes workspace isolation, onboarding, and a reusable Website R
 2. Add a scheduled job that writes normalized observations to D1.
 3. Convert the Growth Operator's task planner from seed data to rules / model-backed planning.
 4. Add one real Level 2 executor (draft → approval → publish) with audit logs and rollback.
-5. Replace the private Alpha Sites identity-header dependency with a public registration and account-management flow when the product is ready for self-serve users.
+5. Add account settings for session/device management and verified secondary-email linking.

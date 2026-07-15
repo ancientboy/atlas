@@ -2,7 +2,7 @@
 
 import "./marketing.css";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 const Arrow = ({ diagonal = false }: { diagonal?: boolean }) => (
   <span aria-hidden="true">{diagonal ? "↗" : "→"}</span>
@@ -16,6 +16,15 @@ const Mark = () => (
   </span>
 );
 
+function trackMarketingEvent(eventName: "page_view" | "login_click" | "early_access_submit") {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    let anonymousId = window.localStorage.getItem("atlas-anonymous-id");
+    if (!anonymousId) { anonymousId = crypto.randomUUID(); window.localStorage.setItem("atlas-anonymous-id", anonymousId); }
+    void fetch("/api/track", { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ eventName, anonymousId, path: `${window.location.pathname}${window.location.search}`, referrer: document.referrer, utmSource: params.get("utm_source"), utmMedium: params.get("utm_medium"), utmCampaign: params.get("utm_campaign"), utmContent: params.get("utm_content") }) });
+  } catch { /* Attribution must never block the website. */ }
+}
+
 export default function Home() {
   const [submitted, setSubmitted] = useState(false);
   const [locale, setLocale] = useState<"en" | "zh">("en");
@@ -23,8 +32,11 @@ export default function Home() {
   const tr = (en: string, cn: string) => zh ? cn : en;
   const loginUrl = "/login";
 
+  useEffect(() => { trackMarketingEvent("page_view"); }, []);
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    trackMarketingEvent("early_access_submit");
     setSubmitted(true);
   }
 
@@ -42,8 +54,8 @@ export default function Home() {
         </div>
         <div className="nav-actions">
           <div className="locale-switch" aria-label="Language"><button className={!zh ? "active" : ""} onClick={() => setLocale("en")}>EN</button><span>/</span><button className={zh ? "active" : ""} onClick={() => setLocale("zh")}>中文</button></div>
-          <a className="login-link" href={loginUrl}>{tr("Log in", "登录")}</a>
-          <a className="navcta" href={loginUrl}>{tr("Get early access", "申请内测")} <Arrow /></a>
+          <a className="login-link" href={loginUrl} onClick={() => trackMarketingEvent("login_click")}>{tr("Log in", "登录")}</a>
+          <a className="navcta" href={loginUrl} onClick={() => trackMarketingEvent("login_click")}>{tr("Get early access", "申请内测")} <Arrow /></a>
         </div>
       </nav>
 
@@ -52,7 +64,7 @@ export default function Home() {
         <h1>{tr("Build your company with", "和你的第一位 AI 员工")}<br />{tr("your first ", "一起")}<em>{tr("AI employee.", "建立公司。")}</em></h1>
         <p className="hero-copy">{tr("Atlas learns your product, finds your next growth move, and gets the work done—while you stay focused on building.", "Atlas 会学习你的产品、寻找下一个增长机会并完成工作，让你继续专注于产品本身。")}</p>
         <div className="hero-actions">
-          <a className="button dark" href={loginUrl}>{tr("Get early access", "申请内测")} <Arrow /></a>
+          <a className="button dark" href={loginUrl} onClick={() => trackMarketingEvent("login_click")}>{tr("Get early access", "申请内测")} <Arrow /></a>
           <a className="button light" href="#how">{tr("See how Atlas works", "了解 Atlas 如何工作")} <span className="play">▶</span></a>
         </div>
 

@@ -329,9 +329,23 @@ export const platformConnections = sqliteTable("platform_connections", {
   status: text("status").notNull().default("pending"),
   scopesJson: text("scopes_json").notNull().default("[]"),
   credentialReference: text("credential_reference"),
+  credentialCiphertext: text("credential_ciphertext"),
+  refreshCiphertext: text("refresh_ciphertext"),
+  metadataJson: text("metadata_json").notNull().default("{}"),
   expiresAt: text("expires_at"),
   lastSyncAt: text("last_sync_at"),
   ...timestamps,
+});
+
+export const oauthConnectionStates = sqliteTable("oauth_connection_states", {
+  state: text("state").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  userId: text("user_id").notNull(),
+  provider: text("provider").notNull(),
+  codeVerifier: text("code_verifier"),
+  returnTo: text("return_to").notNull().default("/app?view=connections"),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const publicationJobs = sqliteTable("publication_jobs", {

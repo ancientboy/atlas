@@ -274,3 +274,35 @@ export const agentRateLimits = sqliteTable("agent_rate_limits", {
   count: integer("count").notNull().default(0),
   windowStart: text("window_start").notNull(),
 });
+
+export const campaigns = sqliteTable("campaigns", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  opportunityId: integer("opportunity_id"),
+  name: text("name").notNull(),
+  objective: text("objective").notNull(),
+  audience: text("audience").notNull(),
+  coreMessage: text("core_message").notNull(),
+  offer: text("offer").notNull(),
+  cta: text("cta").notNull(),
+  status: text("status").notNull().default("draft"),
+  ...timestamps,
+});
+
+export const campaignAssets = sqliteTable("campaign_assets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  campaignId: integer("campaign_id").notNull(),
+  approvalId: integer("approval_id"),
+  channel: text("channel").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  cta: text("cta").notNull(),
+  status: text("status").notNull().default("pending_approval"),
+  publishedUrl: text("published_url"),
+  publishedAt: text("published_at"),
+  impressions: integer("impressions").notNull().default(0),
+  clicks: integer("clicks").notNull().default(0),
+  conversions: integer("conversions").notNull().default(0),
+  ...timestamps,
+});

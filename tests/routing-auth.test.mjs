@@ -108,3 +108,24 @@ test("multiple products use isolated workspaces with a sidebar switcher and add-
   assert.match(dashboard, /window\.confirm/);
   assert.match(onboarding, /window\.location\.replace\(`\/app\?view=product-intelligence/);
 });
+
+test("Growth Campaign Agent turns workspace opportunities into approval-gated channel assets", async () => {
+  const [route, dashboard, migration, validation] = await Promise.all([
+    readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0003_growth_campaign_agent.sql", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/validate-artifact.sh", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /action === "create_campaign"/);
+  assert.match(route, /generateGrowthCampaignWithLlm/);
+  assert.match(route, /campaign_asset_publish/);
+  assert.match(route, /WHERE id = \? AND workspace_id = \?/);
+  assert.match(route, /status = 'approved'/);
+  assert.match(dashboard, /id: "campaigns"/);
+  assert.match(dashboard, /function CampaignComposer/);
+  assert.match(dashboard, /mark_campaign_asset_published/);
+  assert.match(dashboard, /update_campaign_metrics/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS campaigns/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS campaign_assets/);
+  assert.match(validation, /0003_growth_campaign_agent\.sql/);
+});

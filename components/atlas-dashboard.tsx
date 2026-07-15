@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { atlasV2Seed, type Approval, type AtlasV2Data, type CampaignAsset, type Opportunity } from "../lib/atlas-v2-data";
 import type { ProductAnalysisCore } from "../lib/atlas-runtime";
 import { campaignTrackingUrl } from "../lib/campaign-tracking";
+import { campaignChannelLimit, campaignChannels, type CampaignChannel } from "../lib/campaign-channels";
 import { workspaceDestination, workspaceErrorMessage } from "../lib/route-state";
 
 type Locale = "zh" | "en";
@@ -22,6 +23,7 @@ const copy = {
 const nav: { id: View; icon: string; key: keyof typeof copy.zh; label?: Record<Locale, string> }[] = [
   { id: "today", icon: "◒", key: "today" }, { id: "product-intelligence", icon: "◫", key: "today", label: { zh: "产品洞察", en: "Product Intelligence" } }, { id: "opportunities", icon: "✦", key: "opportunities" }, { id: "campaigns", icon: "◉", key: "campaigns" }, { id: "approvals", icon: "✓", key: "approvals" }, { id: "activity", icon: "≋", key: "activity" }, { id: "memory", icon: "◈", key: "memory" }, { id: "agents", icon: "◎", key: "agents" }, { id: "connections", icon: "↗", key: "connections" },
 ];
+const channelOptions = Object.entries(campaignChannels) as [CampaignChannel, (typeof campaignChannels)[CampaignChannel]][];
 
 function statusTone(status: string) { return status.replaceAll("_", "-"); }
 function riskTone(level: number) { return level === 1 ? "safe" : level === 2 ? "review" : "manual"; }
@@ -220,9 +222,9 @@ function Opportunities({ t, items, onMutate, onCreateCampaign }: { t: typeof cop
 function CampaignComposer({ locale, opportunity, busy, onClose, onCreate }: { locale: Locale; opportunity: Opportunity; busy: boolean; onClose: () => void; onCreate: (objective: string, channels: string[]) => void }) {
   const zh = locale === "zh";
   const [objective, setObjective] = useState(zh ? "获取更多目标用户访问和注册" : "Drive qualified visits and signups");
-  const [channels, setChannels] = useState(["x", "linkedin", "blog"]);
+  const [channels, setChannels] = useState<string[]>(["x", "linkedin", "blog"]);
   const toggle = (channel: string) => setChannels((current) => current.includes(channel) ? current.filter((item) => item !== channel) : [...current, channel]);
-  return <div className="drawer-backdrop campaign-backdrop" onMouseDown={busy ? undefined : onClose}><aside className="campaign-composer" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close" disabled={busy} onClick={onClose}>×</button><p>GROWTH CAMPAIGN AGENT</p><h2>{zh ? "把机会变成可执行 Campaign" : "Turn this opportunity into a campaign"}</h2><article><span>{opportunity.signal} · {opportunity.confidence}%</span><strong>{opportunity.title}</strong><small>{opportunity.suggestedAction}</small></article><label>{zh ? "Campaign 目标" : "Campaign objective"}<textarea value={objective} disabled={busy} onChange={(event) => setObjective(event.target.value)} /></label><fieldset><legend>{zh ? "生成渠道内容" : "Generate channel assets"}</legend>{[{ id: "x", label: "X" }, { id: "linkedin", label: "LinkedIn" }, { id: "blog", label: zh ? "博客" : "Blog" }].map((item) => <label key={item.id}><input type="checkbox" checked={channels.includes(item.id)} disabled={busy} onChange={() => toggle(item.id)} />{item.label}</label>)}</fieldset><button className="campaign-generate" disabled={busy || !objective.trim() || !channels.length} onClick={() => onCreate(objective, channels)}>{busy ? (zh ? "Campaign Agent 正在生成…" : "Campaign Agent is generating…") : (zh ? "生成 Campaign 与内容" : "Generate campaign and content")}</button><small>{zh ? "内容只会进入审批队列，不会自动发布。" : "Content enters the approval queue and is never auto-published."}</small></aside></div>;
+  return <div className="drawer-backdrop campaign-backdrop" onMouseDown={busy ? undefined : onClose}><aside className="campaign-composer" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close" disabled={busy} onClick={onClose}>×</button><p>GROWTH CAMPAIGN AGENT</p><h2>{zh ? "把机会变成可执行 Campaign" : "Turn this opportunity into a campaign"}</h2><article><span>{opportunity.signal} · {opportunity.confidence}%</span><strong>{opportunity.title}</strong><small>{opportunity.suggestedAction}</small></article><label>{zh ? "Campaign 目标" : "Campaign objective"}<textarea value={objective} disabled={busy} onChange={(event) => setObjective(event.target.value)} /></label><fieldset className="channel-picker"><legend>{zh ? "生成渠道内容" : "Generate channel assets"}</legend>{channelOptions.map(([id, item]) => <label key={id} title={item.format}><input type="checkbox" checked={channels.includes(id)} disabled={busy} onChange={() => toggle(id)} /><span>{zh ? item.labelZh : item.label}</span><small>{item.mode === "api" ? (zh ? "可接 API" : "API-ready") : item.mode === "manual" ? (zh ? "人工发布" : "Manual") : (zh ? "审核发布" : "Review")}</small></label>)}</fieldset><button className="campaign-generate" disabled={busy || !objective.trim() || !channels.length || channels.length > 5} onClick={() => onCreate(objective, channels)}>{busy ? (zh ? "Campaign Agent 正在生成…" : "Campaign Agent is generating…") : (zh ? "生成 Campaign 与内容" : "Generate campaign and content")}</button><small>{channels.length > 5 ? (zh ? "一次最多选择 5 个渠道，便于生成更准确的内容。" : "Choose up to five channels per generation for better drafts.") : (zh ? "社区互动内容需要人工审核；Atlas 不会批量 @ 用户或发布重复回复。" : "Community interactions require review. Atlas never mass-mentions users or posts repetitive replies.")}</small></aside></div>;
 }
 
 function Campaigns({ locale, data, onAssetAction, onOpenApprovals }: { locale: Locale; data: AtlasV2Data; onAssetAction: (action: string, asset: CampaignAsset, payload?: Record<string, unknown>) => Promise<void>; onOpenApprovals: () => void }) {
@@ -244,8 +246,8 @@ function ContentStudioAsset({ locale, productName, productUrl, asset, onAssetAct
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [draft, setDraft] = useState({ title: asset.title, content: asset.content, cta: asset.cta });
   const [busy, setBusy] = useState<"save" | "regenerate" | "publish" | "">("");
-  const limit = asset.channel === "x" ? 280 : asset.channel === "linkedin" ? 3000 : 12000;
-  const label = asset.channel === "x" ? "X" : asset.channel === "linkedin" ? "LinkedIn" : zh ? "博客" : "Blog";
+  const limit = campaignChannelLimit(asset.channel);
+  const label = zh ? campaignChannels[asset.channel].labelZh : campaignChannels[asset.channel].label;
   const trackingUrl = campaignTrackingUrl(productUrl, asset.channel, asset.campaignId, asset.id);
   const changed = draft.title !== asset.title || draft.content !== asset.content || draft.cta !== asset.cta;
   const run = async (kind: typeof busy, action: string, payload: Record<string, unknown> = {}) => { setBusy(kind); try { await onAssetAction(action, asset, payload); if (kind === "save") setMode("preview"); } finally { setBusy(""); } };
@@ -274,8 +276,12 @@ function ManualPublishPanel({ locale, busy, onPublish }: { locale: Locale; busy:
 function PlatformPreview({ channel, productName, title, content, cta }: { channel: string; productName: string; title: string; content: string; cta: string }) {
   if (channel === "blog") return <div className="platform-preview blog-preview"><div className="browser-bar"><i /><i /><i /><span>blog.preview</span></div><div className="blog-body"><small>GROWTH NOTES · 6 MIN READ</small><h3>{title}</h3><p>{content}</p><button>{cta}</button></div></div>;
   const linkedIn = channel === "linkedin";
-  return <div className={`platform-preview ${linkedIn ? "linkedin-preview" : "x-preview"}`}><header><span className="preview-avatar">{productName.slice(0, 1).toUpperCase()}</span><div><strong>{productName}</strong><small>{linkedIn ? `${productName} · 1h` : `@${productName.toLowerCase().replace(/\W+/g, "")} · 1h`}</small></div><b>•••</b></header><p>{content}</p>{cta && <a>{cta}</a>}<footer>{linkedIn ? <><span>Like</span><span>Comment</span><span>Repost</span><span>Send</span></> : <><span>♡ 24</span><span>◯ 8</span><span>↗ 3</span><span>⌁</span></>}</footer></div>;
+  if (channel === "x" || linkedIn) return <div className={`platform-preview ${linkedIn ? "linkedin-preview" : "x-preview"}`}><header><span className="preview-avatar">{productName.slice(0, 1).toUpperCase()}</span><div><strong>{productName}</strong><small>{linkedIn ? `${productName} · 1h` : `@${productName.toLowerCase().replace(/\W+/g, "")} · 1h`}</small></div><b>•••</b></header><p>{content}</p>{cta && <a>{cta}</a>}<footer>{linkedIn ? <><span>Like</span><span>Comment</span><span>Repost</span><span>Send</span></> : <><span>♡ 24</span><span>◯ 8</span><span>↗ 3</span><span>⌁</span></>}</footer></div>;
+  const spec = isCampaignPreviewChannel(channel) ? campaignChannels[channel] : null;
+  return <div className={`platform-preview community-preview channel-preview-${channel}`}><div className="community-brand"><span>{spec?.label ?? channel}</span><b>{spec?.mode === "api" ? "API READY" : spec?.mode === "manual" ? "MANUAL" : "REVIEW"}</b></div><header><span className="preview-avatar">{productName.slice(0, 1).toUpperCase()}</span><div><strong>{productName}</strong><small>{spec?.label ?? channel} · draft preview</small></div><b>•••</b></header><div className="community-content"><h3>{title}</h3><p>{content}</p></div>{cta && <a>{cta}</a>}<footer><span>△ Helpful</span><span>◯ Reply</span><span>↗ Share</span></footer></div>;
 }
+
+function isCampaignPreviewChannel(value: string): value is CampaignChannel { return value in campaignChannels; }
 
 function CampaignMetrics({ locale, asset, onSave }: { locale: Locale; asset: CampaignAsset; onSave: (metrics: { impressions: number; clicks: number; conversions: number }) => void }) {
   const zh = locale === "zh";

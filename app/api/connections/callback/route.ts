@@ -6,7 +6,7 @@ import { exchangeOAuthCode, fetchOAuthIdentity, isOAuthProvider } from "../../..
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const user = await getAuthenticatedUser(request.headers, env as Record<string, string | undefined>); if (!user) return Response.redirect(new URL("/login?return_to=/app?view=connections", request.url), 302);
+  const user = await getAuthenticatedUser(request.headers, env as Record<string, string | undefined>, env.DB); if (!user) return Response.redirect(new URL("/login?return_to=/app?view=connections", request.url), 302);
   const url = new URL(request.url); const provider = url.searchParams.get("provider") ?? ""; const state = url.searchParams.get("state") ?? ""; const code = url.searchParams.get("code") ?? "";
   if (!isOAuthProvider(provider) || !state || !code) return new Response("Invalid OAuth callback", { status: 400 });
   const row = await env.DB.prepare("SELECT workspace_id AS workspaceId, user_id AS userId, provider, code_verifier AS codeVerifier, return_to AS returnTo, expires_at AS expiresAt FROM oauth_connection_states WHERE state = ?").bind(state).first<{ workspaceId: string; userId: string; provider: string; codeVerifier: string | null; returnTo: string; expiresAt: string }>();

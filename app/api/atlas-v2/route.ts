@@ -112,7 +112,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const { user, workspaceId } = await getWorkspace(request);
-    const body = await request.json() as { action?: string; id?: number; opportunityId?: number; objective?: string; channels?: string[]; locale?: "zh" | "en"; publishedUrl?: string; metrics?: { impressions?: number; clicks?: number; conversions?: number }; productName?: string; product?: { name?: string; url?: string; description?: string; growthGoal?: string; locale?: "zh" | "en" } };
+    const body = await request.json() as { action?: string; id?: number; opportunityId?: number; objective?: string; channels?: string[]; locale?: "zh" | "en"; title?: string; content?: string; cta?: string; publishedUrl?: string; metrics?: { impressions?: number; clicks?: number; conversions?: number }; productName?: string; product?: { name?: string; url?: string; description?: string; growthGoal?: string; locale?: "zh" | "en" } };
     const db = env.DB;
     if (body.action === "create_workspace") {
       const createdWorkspaceId = await createProductWorkspace(db, user, body.productName);
@@ -132,6 +132,25 @@ export async function POST(request: Request) {
       if (!asset) return Response.json({ error: "Approve this campaign asset before marking it published." }, { status: 400 });
       await db.batch([db.prepare("UPDATE campaign_assets SET status = 'published', published_url = ?, published_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(body.publishedUrl?.trim() || null, nowText(), nowText(), body.id, workspaceId), db.prepare("UPDATE campaigns SET status = 'active', updated_at = ? WHERE id = (SELECT campaign_id FROM campaign_assets WHERE id = ? AND workspace_id = ?) AND workspace_id = ?").bind(nowText(), body.id, workspaceId, workspaceId)]);
       return Response.json(await workspacePayload(workspaceId, user.id));
+    }
+    if (body.action === "update_campaign_asset") {
+      if (!body.id || !body.title?.trim() || !body.content?.trim() || !body.cta?.trim()) return Response.json({ error: "Title, content, and CTA are required." }, { status: 400 });
+      const asset = await db.prepare("SELECT id, channel, approval_id AS approvalId FROM campaign_assets WHERE id = ? AND workspace_id = ?").bind(body.id, workspaceId).first<{ id: number; channel: string; approvalId: number | null }>();
+      if (!asset) return Response.json({ error: "Campaign asset was not found." }, { status: 404 });
+      const limit = asset.channel === "x" ? 280 : asset.channel === "linkedin" ? 3000 : 12000;
+      if (body.content.trim().length > limit) return Response.json({ error: `Content exceeds the ${limit} character limit for ${asset.channel}.` }, { status: 400 });
+      const payload = JSON.stringify({ channel: asset.channel, title: body.title.trim(), content: body.content.trim(), cta: body.cta.trim() });
+      await db.batch([db.prepare("UPDATE campaign_assets SET title = ?, content = ?, cta = ?, status = 'pending_approval', updated_at = ? WHERE id = ? AND workspace_id = ?").bind(body.title.trim().slice(0, 200), body.content.trim(), body.cta.trim().slice(0, 500), nowText(), body.id, workspaceId), db.prepare("UPDATE approvals SET title = ?, payload = ?, status = 'pending', approved_by = NULL, approved_at = NULL WHERE id = ? AND workspace_id = ?").bind(`Approve ${asset.channel} campaign asset`, payload, asset.approvalId, workspaceId)]);
+      return Response.json(await workspacePayload(workspaceId, user.id));
+    }
+    if (body.action === "regenerate_campaign_asset") {
+      if (!body.id) return Response.json({ error: "Campaign asset is required." }, { status: 400 });
+      await enforceRateLimit(db, user.id, workspaceId);
+      const asset = await db.prepare("SELECT a.id, a.channel, a.approval_id AS approvalId, c.objective, c.opportunity_id AS opportunityId FROM campaign_assets a INNER JOIN campaigns c ON c.id = a.campaign_id AND c.workspace_id = a.workspace_id WHERE a.id = ? AND a.workspace_id = ?").bind(body.id, workspaceId).first<{ id: number; channel: "x" | "linkedin" | "blog"; approvalId: number; objective: string; opportunityId: number }>();
+      const product = await db.prepare("SELECT name, url, description, growth_goal AS growthGoal, analysis_json AS analysisJson FROM products WHERE workspace_id = ? AND analysis_status = 'completed' ORDER BY id DESC LIMIT 1").bind(workspaceId).first<Record<string, unknown>>();
+      const opportunity = asset ? await db.prepare("SELECT id, title, summary, suggested_action AS suggestedAction, signal, confidence FROM opportunities WHERE id = ? AND workspace_id = ?").bind(asset.opportunityId, workspaceId).first<Record<string, unknown>>() : null;
+      if (!asset || !product || !opportunity) return Response.json({ error: "Campaign source was not found in this workspace." }, { status: 404 });
+      try { const draft = await generateGrowthCampaignWithLlm({ product: { ...product, analysis: parse(product.analysisJson, null) }, opportunity, objective: asset.objective, channels: [asset.channel], locale: body.locale === "en" ? "en" : "zh" }, env as Record<string, string | undefined>); const generated = draft.assets[0]; const payload = JSON.stringify(generated); await db.batch([db.prepare("UPDATE campaign_assets SET title = ?, content = ?, cta = ?, status = 'pending_approval', updated_at = ? WHERE id = ? AND workspace_id = ?").bind(generated.title, generated.content, generated.cta, nowText(), asset.id, workspaceId), db.prepare("UPDATE approvals SET title = ?, payload = ?, status = 'pending', approved_by = NULL, approved_at = NULL WHERE id = ? AND workspace_id = ?").bind(`Approve ${asset.channel} campaign asset`, payload, asset.approvalId, workspaceId)]); return Response.json(await workspacePayload(workspaceId, user.id)); } catch (error) { return Response.json({ error: safeClientError(error) }, { status: 400 }); }
     }
     if (body.action === "update_campaign_metrics") {
       if (!body.id) return Response.json({ error: "Campaign asset is required." }, { status: 400 });

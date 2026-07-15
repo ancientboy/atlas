@@ -190,3 +190,25 @@ test("approved assets can enter idempotent official publishing and daily reflect
   assert.match(publishing, /oauth\.reddit\.com\/api\/submit/);
   assert.match(publishing, /wp-json\/wp\/v2\/posts/);
 });
+
+test("workspace connection center uses OAuth state, encrypted credentials, and revocation", async () => {
+  const [start, callback, manage, dashboard, migration, validation] = await Promise.all([
+    readFile(new URL("../app/api/connections/start/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/connections/callback/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/connections/manage/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0005_workspace_oauth_connections.sql", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/validate-artifact.sh", import.meta.url), "utf8"),
+  ]);
+  assert.match(start, /workspace_members/);
+  assert.match(start, /oauth_connection_states/);
+  assert.match(callback, /row\.userId !== user\.id/);
+  assert.match(callback, /encryptConnectionSecret/);
+  assert.match(manage, /resolvePublicAddresses/);
+  assert.match(manage, /action === "disconnect"/);
+  assert.match(dashboard, /api\/connections\/start/);
+  assert.match(dashboard, /Application Password/);
+  assert.match(migration, /credential_ciphertext/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS oauth_connection_states/);
+  assert.match(validation, /0005_workspace_oauth_connections\.sql/);
+});

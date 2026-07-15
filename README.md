@@ -15,6 +15,8 @@ The app defaults to Chinese and has a true Chinese/English interface switch. His
 - **Memory / 公司记忆**: decisions and learned preferences with source, confidence, and verification time.
 - **Agents / 数字员工**: Growth Operator and Reflection Agent profiles.
 - **Connections / 连接**: mock connections showing the future observe/execute boundary.
+- **Official publishing / 官方发布**: approval-gated, idempotent publishing adapters for WordPress, X, LinkedIn, and Reddit. Xiaohongshu stays manual unless an approved account API is available.
+- **Attribution & reflection / 归因与复盘**: stable UTM links, privacy-minimized first-party events, daily growth snapshots, and an on-demand Reflection Agent run.
 
 ## Architecture
 
@@ -34,6 +36,10 @@ db/schema.ts
 ```
 
 V2 database entities are workspace-scoped and include `users`, `workspaces`, `workspace_members`, `products`, `agents`, `agent_tasks`, `agent_runs`, `approvals`, `memories`, `observations`, `opportunities`, `connections`, `metrics`, and `agent_rate_limits`.
+
+Publishing credentials are server-only. Configure the variables documented in `.env.example`; the browser receives readiness booleans only, never access tokens or passwords. WordPress defaults to creating drafts. X, LinkedIn, and Reddit publishing must use credentials issued through their official developer flows. Every automatic publish still requires an approved campaign asset and is protected by a stable idempotency key, bounded retries, and a stored public receipt.
+
+Sites can invoke `run_daily_reflection` after analytics synchronization. The current UI also exposes a safe “run today’s reflection” action. A platform scheduler may call the same action once per workspace; the daily snapshot upsert makes repeated runs safe.
 
 ## Start locally
 

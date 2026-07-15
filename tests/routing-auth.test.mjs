@@ -149,3 +149,25 @@ test("Content Studio supports platform previews, safe editing, regeneration, and
   assert.match(styles, /\.linkedin-preview/);
   assert.match(styles, /\.blog-preview/);
 });
+
+test("GEO distribution channels, attribution storage, and publishing queue are packaged safely", async () => {
+  const [channels, dashboard, route, trackingRoute, migration, validation] = await Promise.all([
+    readFile(new URL("../lib/campaign-channels.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/track/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0004_distribution_attribution.sql", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/validate-artifact.sh", import.meta.url), "utf8"),
+  ]);
+  for (const channel of ["reddit", "quora", "youtube", "product_hunt", "github", "newsletter", "xiaohongshu"]) assert.match(channels, new RegExp(`${channel}:`));
+  assert.match(channels, /mode: "manual"/);
+  assert.match(dashboard, /never mass-mentions users or posts repetitive replies/);
+  assert.match(route, /filter\(isCampaignChannel\)/);
+  assert.match(route, /DELETE FROM publication_jobs WHERE workspace_id/);
+  assert.match(trackingRoute, /sec-fetch-site/);
+  assert.match(trackingRoute, /marketing_events/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS publication_jobs/);
+  assert.match(migration, /idempotency_key TEXT NOT NULL UNIQUE/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS daily_growth_snapshots/);
+  assert.match(validation, /0004_distribution_attribution\.sql/);
+});

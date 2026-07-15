@@ -108,3 +108,85 @@ test("multiple products use isolated workspaces with a sidebar switcher and add-
   assert.match(dashboard, /window\.confirm/);
   assert.match(onboarding, /window\.location\.replace\(`\/app\?view=product-intelligence/);
 });
+
+test("Growth Campaign Agent turns workspace opportunities into approval-gated channel assets", async () => {
+  const [route, dashboard, migration, validation] = await Promise.all([
+    readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0003_growth_campaign_agent.sql", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/validate-artifact.sh", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /action === "create_campaign"/);
+  assert.match(route, /generateGrowthCampaignWithLlm/);
+  assert.match(route, /campaign_asset_publish/);
+  assert.match(route, /WHERE id = \? AND workspace_id = \?/);
+  assert.match(route, /status = 'approved'/);
+  assert.match(dashboard, /id: "campaigns"/);
+  assert.match(dashboard, /function CampaignComposer/);
+  assert.match(dashboard, /mark_campaign_asset_published/);
+  assert.match(dashboard, /update_campaign_metrics/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS campaigns/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS campaign_assets/);
+  assert.match(validation, /0003_growth_campaign_agent\.sql/);
+});
+
+test("Content Studio supports platform previews, safe editing, regeneration, and manual publishing", async () => {
+  const [route, dashboard, styles] = await Promise.all([
+    readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /action === "update_campaign_asset"/);
+  assert.match(route, /action === "regenerate_campaign_asset"/);
+  assert.match(route, /status = 'pending_approval'/);
+  assert.match(route, /status = 'pending', approved_by = NULL/);
+  assert.match(dashboard, /function ContentStudioAsset/);
+  assert.match(dashboard, /function PlatformPreview/);
+  assert.match(dashboard, /Export Markdown/);
+  assert.match(dashboard, /Confirm published/);
+  assert.match(dashboard, /This provider is configured/);
+  assert.match(styles, /\.x-preview/);
+  assert.match(styles, /\.linkedin-preview/);
+  assert.match(styles, /\.blog-preview/);
+});
+
+test("GEO distribution channels, attribution storage, and publishing queue are packaged safely", async () => {
+  const [channels, dashboard, route, trackingRoute, migration, validation] = await Promise.all([
+    readFile(new URL("../lib/campaign-channels.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/track/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0004_distribution_attribution.sql", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/validate-artifact.sh", import.meta.url), "utf8"),
+  ]);
+  for (const channel of ["reddit", "quora", "youtube", "product_hunt", "github", "newsletter", "xiaohongshu"]) assert.match(channels, new RegExp(`${channel}:`));
+  assert.match(channels, /mode: "manual"/);
+  assert.match(dashboard, /never mass-mentions users or posts repetitive replies/);
+  assert.match(route, /filter\(isCampaignChannel\)/);
+  assert.match(route, /DELETE FROM publication_jobs WHERE workspace_id/);
+  assert.match(trackingRoute, /sec-fetch-site/);
+  assert.match(trackingRoute, /marketing_events/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS publication_jobs/);
+  assert.match(migration, /idempotency_key TEXT NOT NULL UNIQUE/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS daily_growth_snapshots/);
+  assert.match(validation, /0004_distribution_attribution\.sql/);
+});
+
+test("approved assets can enter idempotent official publishing and daily reflection", async () => {
+  const [route, dashboard, publishing] = await Promise.all([
+    readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/publishing.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /action === "publish_campaign_asset"/);
+  assert.match(route, /INSERT OR IGNORE INTO publication_jobs/);
+  assert.match(route, /attempt_count = attempt_count \+ 1/);
+  assert.match(route, /action === "run_daily_reflection"/);
+  assert.match(route, /daily_growth_snapshots/);
+  assert.match(dashboard, /Publish with Atlas/);
+  assert.match(dashboard, /Run today's reflection/);
+  assert.match(publishing, /api\.x\.com\/2\/tweets/);
+  assert.match(publishing, /api\.linkedin\.com\/v2\/ugcPosts/);
+  assert.match(publishing, /oauth\.reddit\.com\/api\/submit/);
+  assert.match(publishing, /wp-json\/wp\/v2\/posts/);
+});

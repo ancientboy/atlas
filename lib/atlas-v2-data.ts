@@ -1,3 +1,4 @@
+import type { CampaignChannel } from "./campaign-channels";
 export type RiskLevel = 1 | 2 | 3;
 export type TaskStatus = "queued" | "running" | "waiting_approval" | "approved" | "rejected" | "deferred" | "completed" | "failed";
 export type Agent = { id: number; name: string; role: string; description: string; status: string; autonomyLevel: number; schedule: string; successRate: number; currentTask: string; tools: string[] };
@@ -8,6 +9,8 @@ export type Opportunity = { id: number; title: string; source: string; observedA
 export type Memory = { id: number; type: string; title: string; content: string; source: string; confidence: number; status: "active" | "unverified" | "validated" | "rejected" | "outdated"; verifiedAt: string };
 export type Connection = { id: number; name: string; description: string; status: "connected" | "mock" | "available"; lastSync: string; category: string };
 export type Product = { id: number; name: string; url: string; description?: string | null; growthGoal?: string | null; analysisStatus: "pending" | "running" | "completed" | "failed"; analysisError?: string | null; analysis?: ProductAnalysis | null };
+export type Campaign = { id: number; opportunityId: number | null; name: string; objective: string; audience: string; coreMessage: string; offer: string; cta: string; status: string; createdAt: string; updatedAt: string };
+export type CampaignAsset = { id: number; campaignId: number; approvalId: number | null; channel: CampaignChannel; title: string; content: string; cta: string; status: string; publishedUrl: string | null; publishedAt: string | null; impressions: number; clicks: number; conversions: number; createdAt: string };
 
 export const atlasV2Seed = {
   agents: [
@@ -52,5 +55,5 @@ export const atlasV2Seed = {
 };
 
 export type WorkspaceSummary = { id: string; name: string; productName: string | null; productUrl: string | null; analysisStatus: string | null };
-export type AtlasV2Data = typeof atlasV2Seed & { product?: Product | null; workspace?: { id: string }; workspaces?: WorkspaceSummary[]; metrics: { visits: number; signups: number; paid: number; conversion: number; yesterdayCompleted: number } };
+export type AtlasV2Data = typeof atlasV2Seed & { product?: Product | null; workspace?: { id: string }; workspaces?: WorkspaceSummary[]; campaigns?: Campaign[]; campaignAssets?: CampaignAsset[]; publishing?: { wordpress: boolean; x: boolean; linkedin: boolean; reddit: boolean; analytics: boolean }; metrics: { visits: number; signups: number; paid: number; conversion: number; yesterdayCompleted: number } };
 import type { ProductAnalysis } from "./atlas-runtime";

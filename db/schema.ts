@@ -274,3 +274,106 @@ export const agentRateLimits = sqliteTable("agent_rate_limits", {
   count: integer("count").notNull().default(0),
   windowStart: text("window_start").notNull(),
 });
+
+export const campaigns = sqliteTable("campaigns", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  opportunityId: integer("opportunity_id"),
+  name: text("name").notNull(),
+  objective: text("objective").notNull(),
+  audience: text("audience").notNull(),
+  coreMessage: text("core_message").notNull(),
+  offer: text("offer").notNull(),
+  cta: text("cta").notNull(),
+  status: text("status").notNull().default("draft"),
+  ...timestamps,
+});
+
+export const campaignAssets = sqliteTable("campaign_assets", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  campaignId: integer("campaign_id").notNull(),
+  approvalId: integer("approval_id"),
+  channel: text("channel").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  cta: text("cta").notNull(),
+  status: text("status").notNull().default("pending_approval"),
+  publishedUrl: text("published_url"),
+  publishedAt: text("published_at"),
+  impressions: integer("impressions").notNull().default(0),
+  clicks: integer("clicks").notNull().default(0),
+  conversions: integer("conversions").notNull().default(0),
+  ...timestamps,
+});
+
+export const marketingEvents = sqliteTable("marketing_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  anonymousId: text("anonymous_id").notNull(),
+  eventName: text("event_name").notNull(),
+  path: text("path").notNull(),
+  referrer: text("referrer"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  utmContent: text("utm_content"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const platformConnections = sqliteTable("platform_connections", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  provider: text("provider").notNull(),
+  externalAccountId: text("external_account_id"),
+  accountLabel: text("account_label"),
+  status: text("status").notNull().default("pending"),
+  scopesJson: text("scopes_json").notNull().default("[]"),
+  credentialReference: text("credential_reference"),
+  expiresAt: text("expires_at"),
+  lastSyncAt: text("last_sync_at"),
+  ...timestamps,
+});
+
+export const publicationJobs = sqliteTable("publication_jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  assetId: integer("asset_id").notNull(),
+  connectionId: integer("connection_id"),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  status: text("status").notNull().default("queued"),
+  scheduledFor: text("scheduled_for"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(4),
+  nextAttemptAt: text("next_attempt_at"),
+  externalPostId: text("external_post_id"),
+  publishedUrl: text("published_url"),
+  lastError: text("last_error"),
+  ...timestamps,
+});
+
+export const campaignMetricSnapshots = sqliteTable("campaign_metric_snapshots", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  assetId: integer("asset_id").notNull(),
+  snapshotDate: text("snapshot_date").notNull(),
+  source: text("source").notNull(),
+  impressions: integer("impressions").notNull().default(0),
+  clicks: integer("clicks").notNull().default(0),
+  engagements: integer("engagements").notNull().default(0),
+  conversions: integer("conversions").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const dailyGrowthSnapshots = sqliteTable("daily_growth_snapshots", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  snapshotDate: text("snapshot_date").notNull(),
+  visits: integer("visits").notNull().default(0),
+  signups: integer("signups").notNull().default(0),
+  paid: integer("paid").notNull().default(0),
+  attributedVisits: integer("attributed_visits").notNull().default(0),
+  attributedSignups: integer("attributed_signups").notNull().default(0),
+  attributedPaid: integer("attributed_paid").notNull().default(0),
+  reflectionJson: text("reflection_json"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});

@@ -3,7 +3,7 @@ export function campaignTrackingUrl(productUrl: string, channel: string, campaig
     const url = new URL(productUrl);
     if (!/^https?:$/.test(url.protocol)) return productUrl;
     url.searchParams.set("utm_source", channel);
-    url.searchParams.set("utm_medium", channel === "blog" ? "content" : "social");
+    url.searchParams.set("utm_medium", isCampaignChannel(channel) ? campaignChannels[channel].medium : "content");
     url.searchParams.set("utm_campaign", `atlas_campaign_${campaignId}`);
     url.searchParams.set("utm_content", `asset_${assetId}`);
     return url.toString();
@@ -21,3 +21,4 @@ export function normalizePublishedUrl(value: string | undefined) {
     throw new Error("A valid HTTPS published URL is required for manual publishing.");
   }
 }
+import { campaignChannels, isCampaignChannel } from "./campaign-channels.ts";

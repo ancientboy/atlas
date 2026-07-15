@@ -143,7 +143,7 @@ test("Content Studio supports platform previews, safe editing, regeneration, and
   assert.match(dashboard, /function ContentStudioAsset/);
   assert.match(dashboard, /function PlatformPreview/);
   assert.match(dashboard, /Export Markdown/);
-  assert.match(dashboard, /Mark published/);
+  assert.match(dashboard, /Confirm published/);
   assert.match(dashboard, /does not auto-publish yet/);
   assert.match(styles, /\.x-preview/);
   assert.match(styles, /\.linkedin-preview/);

@@ -1,14 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { providerReadiness, publishCampaignAsset } from "../lib/publishing.ts";
+import { publishCampaignAsset } from "../lib/publishing.ts";
 
 const asset = { channel: "blog", title: "Atlas update", content: "Useful launch notes", cta: "https://example.com" };
-
-test("provider readiness never returns credentials", () => {
-  const readiness = providerReadiness({ WORDPRESS_BASE_URL: "https://cms.example.com", WORDPRESS_USERNAME: "editor", WORDPRESS_APP_PASSWORD: "secret", X_ACCESS_TOKEN: "secret" });
-  assert.deepEqual(readiness, { wordpress: true, x: true, linkedin: false, reddit: false, analytics: false });
-  assert.doesNotMatch(JSON.stringify(readiness), /secret/);
-});
 
 test("WordPress publishes draft-first through the official posts endpoint", async () => {
   let request;

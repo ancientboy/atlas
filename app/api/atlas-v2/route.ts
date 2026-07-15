@@ -5,7 +5,9 @@ import { getAuthenticatedUser, rateLimitKey, safeClientError, validatePublicUrl,
 import { analyzeProductWithLlm, generateGrowthCampaignWithLlm } from "../../../lib/llm-provider";
 import { normalizePublishedUrl } from "../../../lib/campaign-tracking";
 import { campaignChannelLimit, isCampaignChannel, type CampaignChannel } from "../../../lib/campaign-channels";
-import { isPublishableChannel, providerReadiness, publishCampaignAsset } from "../../../lib/publishing";
+import { isPublishableChannel, publishCampaignAsset } from "../../../lib/publishing";
+import { decryptConnectionSecret } from "../../../lib/connection-vault";
+import { oauthAppReadiness } from "../../../lib/oauth-providers";
 import { readProductWebsite } from "../../../lib/website-reader";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +64,7 @@ async function snapshot(workspaceId: string) { const db = env.DB; const [product
  db.prepare("SELECT id, opportunity_id AS opportunityId, name, objective, audience, core_message AS coreMessage, offer, cta, status, created_at AS createdAt, updated_at AS updatedAt FROM campaigns WHERE workspace_id = ? ORDER BY id DESC").bind(workspaceId).all(),
  db.prepare("SELECT id, campaign_id AS campaignId, approval_id AS approvalId, channel, title, content, cta, status, published_url AS publishedUrl, published_at AS publishedAt, impressions, clicks, conversions, created_at AS createdAt FROM campaign_assets WHERE workspace_id = ? ORDER BY id DESC").bind(workspaceId).all(),]); return { workspace: { id: workspaceId }, product: product ? { ...product, analysis: parse((product as { analysisJson?: string }).analysisJson, null) } : null, agents: agents.results.map((i) => ({...i, tools: parse(i.tools, [])})), tasks: tasks.results.map((i) => ({...i, requiresApproval: Boolean(i.requiresApproval), evidence: parse(i.evidence, [])})), approvals: approvals.results, runs: runs.results.map((i) => ({...i, tools: parse(i.tools, [])})), opportunities: opportunities.results, memories: memories.results, connections: connections.results, campaigns: campaigns.results, campaignAssets: campaignAssets.results, metrics: { ...(metrics ?? { visits: 0, signups: 0, paid: 0, conversion: 0, completedTasks: 0 }), yesterdayCompleted: (metrics as { completedTasks?: number } | null)?.completedTasks ?? 0 } }; }
 async function listUserWorkspaces(db: D1, userId: string) { const rows = await db.prepare("SELECT w.id, w.name FROM workspaces w INNER JOIN workspace_members m ON m.workspace_id = w.id WHERE m.user_id = ? ORDER BY w.created_at, w.id").bind(userId).all<{ id: string; name: string }>(); return Promise.all(rows.results.map(async (workspace) => { const product = await db.prepare("SELECT name, url, analysis_status AS analysisStatus FROM products WHERE workspace_id = ? ORDER BY id DESC LIMIT 1").bind(workspace.id).first<{ name: string; url: string; analysisStatus: string }>(); return { ...workspace, productName: product?.name ?? null, productUrl: product?.url ?? null, analysisStatus: product?.analysisStatus ?? null }; })); }
-async function workspacePayload(workspaceId: string, userId: string) { return { ...(await snapshot(workspaceId)), workspaces: await listUserWorkspaces(env.DB, userId), publishing: providerReadiness(env as Record<string, string | undefined>) }; }
+async function workspacePayload(workspaceId: string, userId: string) { const platformConnections = await env.DB.prepare("SELECT provider, external_account_id AS externalAccountId, account_label AS accountLabel, status, expires_at AS expiresAt, last_sync_at AS lastSyncAt, metadata_json AS metadataJson FROM platform_connections WHERE workspace_id = ? ORDER BY provider").bind(workspaceId).all(); const connected = new Set(platformConnections.results.filter((item) => item.status === "connected").map((item) => item.provider)); return { ...(await snapshot(workspaceId)), workspaces: await listUserWorkspaces(env.DB, userId), platformConnections: platformConnections.results.map((item) => ({ ...item, metadata: parse(item.metadataJson, {}) })), publishing: { wordpress: connected.has("wordpress"), x: connected.has("x"), linkedin: connected.has("linkedin"), reddit: connected.has("reddit"), analytics: connected.has("ga4") || connected.has("posthog") || env.ATLAS_TRACKING_ENABLED === "1" }, oauthApps: oauthAppReadiness(env as Record<string, string | undefined>) }; }
 async function createProductWorkspace(db: D1, user: { id: string; name: string }, productName?: string) { const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`; const name = `${productName?.trim() || user.name || "New product"} Workspace`; await db.batch([db.prepare("INSERT INTO workspaces (id, name, created_by_user_id) VALUES (?, ?, ?)").bind(workspaceId, name, user.id), db.prepare("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, 'owner')").bind(workspaceId, user.id)]); await ensureWorkspaceAgent(db, workspaceId); return workspaceId; }
 async function runDailyReflection(db: D1, workspaceId: string) {
   const date = new Date().toISOString().slice(0, 10);
@@ -86,6 +88,7 @@ async function deleteProductWorkspace(db: D1, workspaceId: string, user: { id: s
     db.prepare("DELETE FROM campaign_assets WHERE workspace_id = ?").bind(workspaceId),
     db.prepare("DELETE FROM campaigns WHERE workspace_id = ?").bind(workspaceId),
     db.prepare("DELETE FROM daily_growth_snapshots WHERE workspace_id = ?").bind(workspaceId),
+    db.prepare("DELETE FROM oauth_connection_states WHERE workspace_id = ?").bind(workspaceId),
     db.prepare("DELETE FROM platform_connections WHERE workspace_id = ?").bind(workspaceId),
     db.prepare("DELETE FROM opportunities WHERE workspace_id = ?").bind(workspaceId),
     db.prepare("DELETE FROM memories WHERE workspace_id = ?").bind(workspaceId),
@@ -159,7 +162,12 @@ export async function POST(request: Request) {
       if (job.attemptCount >= job.maxAttempts) return Response.json({ error: "Publishing retries are exhausted. Review the connection and retry later." }, { status: 400 });
       await db.prepare("UPDATE publication_jobs SET status = 'processing', attempt_count = attempt_count + 1, last_error = NULL, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(nowText(), job.id, workspaceId).run();
       try {
-        const receipt = await publishCampaignAsset(asset, env as Record<string, string | undefined>);
+        const provider = asset.channel === "blog" ? "wordpress" : asset.channel;
+        const connection = await db.prepare("SELECT credential_ciphertext AS credentialCiphertext, metadata_json AS metadataJson FROM platform_connections WHERE workspace_id = ? AND provider = ? AND status = 'connected' ORDER BY updated_at DESC LIMIT 1").bind(workspaceId, provider).first<{ credentialCiphertext: string; metadataJson: string }>();
+        if (!connection?.credentialCiphertext) throw new Error("Workspace provider connection is not configured.");
+        const secret = await decryptConnectionSecret(connection.credentialCiphertext, env.CONNECTION_ENCRYPTION_KEY); const metadata = parse<{ subreddit?: string }>(connection.metadataJson, {});
+        const publishingEnv: Record<string, string | undefined> = asset.channel === "blog" ? { WORDPRESS_BASE_URL: secret.siteUrl, WORDPRESS_USERNAME: secret.username, WORDPRESS_APP_PASSWORD: secret.applicationPassword, WORDPRESS_PUBLISH_STATUS: env.WORDPRESS_PUBLISH_STATUS } : asset.channel === "x" ? { X_ACCESS_TOKEN: secret.accessToken } : asset.channel === "linkedin" ? { LINKEDIN_ACCESS_TOKEN: secret.accessToken, LINKEDIN_AUTHOR_URN: secret.authorUrn } : { REDDIT_ACCESS_TOKEN: secret.accessToken, REDDIT_SUBREDDIT: metadata.subreddit, REDDIT_USER_AGENT: env.REDDIT_USER_AGENT };
+        const receipt = await publishCampaignAsset(asset, publishingEnv);
         const publishedUrl = normalizePublishedUrl(receipt.publishedUrl);
         await db.batch([
           db.prepare("UPDATE publication_jobs SET status = 'published', external_post_id = ?, published_url = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(receipt.externalPostId, publishedUrl, nowText(), job.id, workspaceId),

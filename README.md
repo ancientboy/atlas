@@ -37,7 +37,7 @@ db/schema.ts
 
 V2 database entities are workspace-scoped and include `users`, `workspaces`, `workspace_members`, `products`, `agents`, `agent_tasks`, `agent_runs`, `approvals`, `memories`, `observations`, `opportunities`, `connections`, `metrics`, and `agent_rate_limits`.
 
-Publishing credentials are server-only. Configure the variables documented in `.env.example`; the browser receives readiness booleans only, never access tokens or passwords. WordPress defaults to creating drafts. X, LinkedIn, and Reddit publishing must use credentials issued through their official developer flows. Every automatic publish still requires an approved campaign asset and is protected by a stable idempotency key, bounded retries, and a stored public receipt.
+Atlas application credentials are server-only. Configure the OAuth Client ID/Secret variables and the 32-byte `CONNECTION_ENCRYPTION_KEY` documented in `.env.example`. Each user connects their own X, LinkedIn, Reddit, or WordPress account from the Workspace Connections page. Access and refresh tokens are encrypted per Workspace in D1; the browser receives only account labels, expiry/readiness metadata, and never tokens or passwords. WordPress defaults to creating drafts. Every automatic publish still requires an approved campaign asset and is protected by a stable idempotency key, bounded retries, and a stored public receipt.
 
 Sites can invoke `run_daily_reflection` after analytics synchronization. The current UI also exposes a safe “run today’s reflection” action. A platform scheduler may call the same action once per workspace; the daily snapshot upsert makes repeated runs safe.
 

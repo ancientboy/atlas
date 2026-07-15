@@ -23,16 +23,6 @@ async function safeJson(response: Response) {
   try { return JSON.parse(text) as Record<string, unknown>; } catch { throw new Error("Provider returned an invalid response."); }
 }
 
-export function providerReadiness(env: Record<string, string | undefined>) {
-  return {
-    wordpress: Boolean(env.WORDPRESS_BASE_URL && env.WORDPRESS_USERNAME && env.WORDPRESS_APP_PASSWORD),
-    x: Boolean(env.X_ACCESS_TOKEN),
-    linkedin: Boolean(env.LINKEDIN_ACCESS_TOKEN && env.LINKEDIN_AUTHOR_URN),
-    reddit: Boolean(env.REDDIT_ACCESS_TOKEN && env.REDDIT_SUBREDDIT),
-    analytics: Boolean(env.GA4_PROPERTY_ID || env.POSTHOG_PROJECT_KEY || env.ATLAS_TRACKING_ENABLED === "1"),
-  };
-}
-
 export function isPublishableChannel(channel: CampaignChannel): channel is PublishableChannel {
   return channel === "blog" || channel === "x" || channel === "linkedin" || channel === "reddit";
 }

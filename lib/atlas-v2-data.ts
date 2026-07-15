@@ -55,5 +55,6 @@ export const atlasV2Seed = {
 };
 
 export type WorkspaceSummary = { id: string; name: string; productName: string | null; productUrl: string | null; analysisStatus: string | null };
-export type AtlasV2Data = typeof atlasV2Seed & { product?: Product | null; workspace?: { id: string }; workspaces?: WorkspaceSummary[]; campaigns?: Campaign[]; campaignAssets?: CampaignAsset[]; publishing?: { wordpress: boolean; x: boolean; linkedin: boolean; reddit: boolean; analytics: boolean }; metrics: { visits: number; signups: number; paid: number; conversion: number; yesterdayCompleted: number } };
+export type PlatformConnection = { provider: string; externalAccountId: string; accountLabel: string; status: string; expiresAt: string | null; lastSyncAt: string | null; metadata: Record<string, unknown> };
+export type AtlasV2Data = typeof atlasV2Seed & { product?: Product | null; workspace?: { id: string }; workspaces?: WorkspaceSummary[]; campaigns?: Campaign[]; campaignAssets?: CampaignAsset[]; platformConnections?: PlatformConnection[]; oauthApps?: { x: boolean; linkedin: boolean; reddit: boolean }; publishing?: { wordpress: boolean; x: boolean; linkedin: boolean; reddit: boolean; analytics: boolean }; metrics: { visits: number; signups: number; paid: number; conversion: number; yesterdayCompleted: number } };
 import type { ProductAnalysis } from "./atlas-runtime";

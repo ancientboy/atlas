@@ -8,11 +8,12 @@ test("website reader returns direct public HTML without using the renderer", asy
   const calls = [];
   const result = await readProductWebsite("https://example.com", {}, async (url) => {
     calls.push(url);
-    return new Response("<html><head><title>Example</title><meta name=\"description\" content=\"A product\"></head><body>Useful public product content</body></html>", { headers: { "content-type": "text/html" } });
+    return new Response("<html><head><title>Example</title><meta name=\"description\" content=\"A product\"></head><body>Useful public product content <a href=\"https://github.com/example/product\">Source</a></body></html>", { headers: { "content-type": "text/html" } });
   }, publicResolver);
   assert.equal(result.source, "direct");
   assert.equal(result.title, "Example");
   assert.match(result.body, /Useful public product content/);
+  assert.deepEqual(result.links, ["https://github.com/example/product"]);
   assert.equal(calls.length, 1);
 });
 

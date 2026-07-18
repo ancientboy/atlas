@@ -198,14 +198,16 @@ test("GEO distribution channels, attribution storage, and publishing queue are p
 });
 
 test("approved assets can enter idempotent official publishing and daily reflection", async () => {
-  const [route, dashboard, publishing] = await Promise.all([
+  const [route, dashboard, publishing, publicationRuntime] = await Promise.all([
     readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/publishing.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/publication-runtime.ts", import.meta.url), "utf8"),
   ]);
   assert.match(route, /action === "publish_campaign_asset"/);
-  assert.match(route, /INSERT OR IGNORE INTO publication_jobs/);
-  assert.match(route, /attempt_count = attempt_count \+ 1/);
+  assert.match(route, /enqueueApprovedAssetPublication/);
+  assert.match(publicationRuntime, /INSERT OR IGNORE INTO publication_jobs/);
+  assert.match(publicationRuntime, /attempt_count = attempt_count \+ 1/);
   assert.match(route, /action === "run_daily_reflection"/);
   assert.match(route, /daily_growth_snapshots/);
   assert.match(dashboard, /Publish with Atlas/);
@@ -214,6 +216,23 @@ test("approved assets can enter idempotent official publishing and daily reflect
   assert.match(publishing, /api\.linkedin\.com\/v2\/ugcPosts/);
   assert.match(publishing, /oauth\.reddit\.com\/api\/submit/);
   assert.match(publishing, /wp-json\/wp\/v2\/posts/);
+});
+
+test("workspace autonomy switch and approval-to-publication runtime are packaged", async () => {
+  const [route, dashboard, publicationRuntime, validation] = await Promise.all([
+    readFile(new URL("../app/api/atlas-v2/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/publication-runtime.ts", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/validate-artifact.sh", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /action === "set_workspace_autonomy"/);
+  assert.match(route, /enqueueApprovedAssetPublication/);
+  assert.match(route, /runWorkspaceAutonomyLoop/);
+  assert.match(dashboard, /autonomy-toggle/);
+  assert.match(publicationRuntime, /runDuePublicationJobs/);
+  assert.match(publicationRuntime, /w\.autonomy_enabled != 0/);
+  assert.match(validation, /0011_autonomy_loop\.sql/);
+  assert.match(validation, /0012_workspace_autonomy_control\.sql/);
 });
 
 test("workspace connection center uses OAuth state, encrypted credentials, and revocation", async () => {

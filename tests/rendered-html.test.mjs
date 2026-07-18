@@ -16,6 +16,8 @@ test("Atlas product shell and durable data model are present", async () => {
   assert.match(dashboard, /Atlas 已经开始工作/);
   assert.match(dashboard, /ApprovalDrawer/);
   assert.match(dashboard, /\/api\/atlas-v2/);
+  assert.match(dashboard, /PostHog/);
+  assert.match(dashboard, /connect_posthog/);
   assert.match(schema, /agentTasks/);
   assert.match(schema, /approvals/);
   assert.match(schema, /memories/);

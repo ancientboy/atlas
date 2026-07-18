@@ -5,6 +5,7 @@ export type WebsiteSnapshot = {
   title: string;
   description: string;
   body: string;
+  links: string[];
   source: "direct" | "reader";
 };
 
@@ -40,8 +41,11 @@ function htmlSnapshot(url: URL, html: string): WebsiteSnapshot {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, analysisTextLimit);
+  const links = [...html.matchAll(/href=["']([^"']+)["']/gi)].map((match) => {
+    try { const value = new URL(match[1], url); return ["http:", "https:"].includes(value.protocol) ? value.toString() : ""; } catch { return ""; }
+  }).filter(Boolean);
   if (!body) throw new Error("Product page did not contain readable content.");
-  return { finalUrl: url.toString(), title, description, body, source: "direct" };
+  return { finalUrl: url.toString(), title, description, body, links: [...new Set(links)].slice(0, 100), source: "direct" };
 }
 
 function markdownSnapshot(url: URL, markdown: string): WebsiteSnapshot {
@@ -54,7 +58,8 @@ function markdownSnapshot(url: URL, markdown: string): WebsiteSnapshot {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 500);
-  return { finalUrl: url.toString(), title, description, body: content.slice(0, analysisTextLimit), source: "reader" };
+  const links = [...markdown.matchAll(/\]\((https?:\/\/[^)\s]+)\)/gi)].map((match) => match[1]);
+  return { finalUrl: url.toString(), title, description, body: content.slice(0, analysisTextLimit), links: [...new Set(links)].slice(0, 100), source: "reader" };
 }
 
 async function fetchDirect(startUrl: URL, fetcher: Fetcher, resolver: Resolver, timeoutMs: number): Promise<WebsiteSnapshot> {

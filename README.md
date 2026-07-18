@@ -35,11 +35,17 @@ db/schema.ts
   └── legacy V1 research tables + V2 runtime tables
 ```
 
-V2 database entities are workspace-scoped and include `users`, `workspaces`, `workspace_members`, `products`, `agents`, `agent_tasks`, `agent_runs`, `approvals`, `memories`, `observations`, `opportunities`, `connections`, `metrics`, and `agent_rate_limits`.
+V2 database entities are workspace-scoped and include `users`, `workspaces`, `workspace_members`, `products`, `agents`, `agent_tasks`, `agent_runs`, `agent_decisions`, `approvals`, `memories`, `observation_sources`, `observation_runs`, `observations`, `insights`, `opportunities`, `connections`, `metrics`, and `agent_rate_limits`.
 
 Atlas application credentials are server-only. Configure the OAuth Client ID/Secret variables and the 32-byte `CONNECTION_ENCRYPTION_KEY` documented in `.env.example`. Each user connects their own X, LinkedIn, Reddit, or WordPress account from the Workspace Connections page. Access and refresh tokens are encrypted per Workspace in D1; the browser receives only account labels, expiry/readiness metadata, and never tokens or passwords. WordPress defaults to creating drafts. Every automatic publish still requires an approved campaign asset and is protected by a stable idempotency key, bounded retries, and a stored public receipt.
 
-Atlas creates one daily reflection per completed Workspace when it becomes active, and the UI also exposes a safe manual refresh. Daily snapshots are upserted and daily action creation is idempotent.
+Atlas now has a durable background Growth Runtime. It stores one schedule per Growth Operator, enqueues a daily job with a Workspace/date idempotency key, leases the job to one worker, retries failures with bounded exponential backoff, and exposes runtime health in Today. The UI still exposes a safe manual refresh. Daily snapshots are upserted and daily action creation is idempotent.
+
+The Growth Operator uses an evidence-ranked Decision Engine. Every daily run reads first-party metrics, recent observations, open opportunities, completed work, and approval blockers; writes a durable `agent_decisions` record; and produces a bilingual Founder Daily Brief containing yesterday's results, discoveries, today's plan, risk, confidence, and the Next Best Action. The core planner is deterministic and auditable so an unavailable LLM cannot prevent the daily operating loop from completing.
+
+The Observation Engine runs as its own durable Agent job. It automatically watches the public product website, discovers a public GitHub repository from product context when available, stores source cursors and content fingerprints, deduplicates unchanged snapshots, records source health and retry state, and derives traceable Insights. A newly detected GitHub release can become a review-gated growth Opportunity; no external content is published by the observer. PostHog can be connected per Workspace with an encrypted Query Read personal API key; Atlas synchronizes bounded daily visitor, signup, and paid-event aggregates every six hours and exposes source freshness without storing raw PostHog events or person data.
+
+The server-only `POST /api/runtime/tick` endpoint advances due jobs. Call it from a trusted scheduler with `Authorization: Bearer <ATLAS_RUNTIME_SECRET>`; the secret must contain at least 32 random characters. Sites owns the application deployment and D1 binding, while the scheduler only invokes this HTTPS endpoint. Opening the workspace no longer runs the daily Agent loop.
 
 ## Account sign-in
 
@@ -96,12 +102,12 @@ npm test
 
 ## Intentional prototype boundaries
 
-This V2 slice includes workspace isolation, onboarding, and a reusable Website Reader used by the Product Analysis Agent. The reader validates the target with trusted DoH/IP checks, attempts a bounded direct HTML fetch, then falls back to Jina Reader's rendered Markdown extraction for blocked or JavaScript-heavy public pages. If both methods fail, onboarding can still use user-provided product context. Private, reserved, metadata, credential-bearing, and non-web targets remain blocked before retrieval. Other connectors are still mocked: Atlas does **not** yet publish to social networks, alter a live landing page, run a cron scheduler, or perform real external actions. Level 3 actions remain manual by design.
+This V2 slice includes workspace isolation, onboarding, and a reusable Website Reader used by Product Analysis and recurring observations. The reader validates the target with trusted DoH/IP checks, attempts a bounded direct HTML fetch, then falls back to Jina Reader's rendered Markdown extraction for blocked or JavaScript-heavy public pages. If both methods fail, onboarding can still use user-provided product context. Private, reserved, metadata, credential-bearing, and non-web targets remain blocked before retrieval. The Observation Engine currently supports public product websites, automatically discovered public GitHub repositories, and first-party Atlas Tracking signals; authenticated analytics and market/community connectors remain incomplete. Atlas does not alter a live landing page, and the repository does not provision an external cron service automatically. Official publishing adapters and encrypted per-Workspace connections exist, while Level 3 actions remain manual by design.
 
 ## Recommended next implementation steps
 
-1. Add one authenticated observation connector (for example PostHog or Search Console).
-2. Add a scheduled job that writes normalized observations to D1.
-3. Convert the Growth Operator's task planner from seed data to rules / model-backed planning.
-4. Add one real Level 2 executor (draft → approval → publish) with audit logs and rollback.
-5. Add account settings for session/device management and verified secondary-email linking.
+1. Configure a trusted scheduler to call `/api/runtime/tick` and monitor runtime health.
+2. Add GA4 or Search Console as the next authenticated measurement connector.
+3. Add policy-compliant Hacker News, Product Hunt, and Reddit observation adapters.
+4. Add LLM-assisted Insight enrichment on top of the deterministic evidence and safety layer.
+5. Link Experiment outcomes and verified lessons back into Memory and future decisions.

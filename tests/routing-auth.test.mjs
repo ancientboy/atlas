@@ -231,6 +231,7 @@ test("workspace autonomy switch and approval-to-publication runtime are packaged
   assert.match(dashboard, /autonomy-toggle/);
   assert.match(publicationRuntime, /runDuePublicationJobs/);
   assert.match(publicationRuntime, /w\.autonomy_enabled != 0/);
+  assert.match(publicationRuntime, /ExternalPublicationExecutor/);
   assert.match(validation, /0011_autonomy_loop\.sql/);
   assert.match(validation, /0012_workspace_autonomy_control\.sql/);
 });

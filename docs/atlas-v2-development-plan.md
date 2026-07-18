@@ -1,5 +1,11 @@
 # Atlas V2 — AI Founder Operator development plan
 
+## Phase 2 — Company Intelligence and measurement
+
+Phase 2 makes the existing Website, GitHub, Atlas Tracking, and PostHog signals usable by the Company Runtime. Each bounded runtime cycle now refreshes a workspace-scoped intelligence snapshot before planning: active goal progress, the current and previous goal metric, connected data-source readiness, health score, and concise evidence. It never passes connection secrets or raw third-party content to the planner.
+
+Company intelligence snapshots are auditable daily state. They update the active goal's current value from the latest internal or synchronized metric and keep only two metric rows in the calculation. The next external-observation increment remains Google Search Console: it needs a dedicated OAuth application and is intentionally not represented as connected before that configuration exists.
+
 Atlas V2 evolves the existing product incrementally. It keeps the current
 workspace, authentication, product intelligence, campaign, approval,
 publishing, tracking, and memory capabilities while connecting them through a

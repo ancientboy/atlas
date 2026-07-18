@@ -347,6 +347,21 @@ export const runtimeDailyUsage = sqliteTable("runtime_daily_usage", {
   workspaceId: text("workspace_id").notNull(), usageDate: text("usage_date").notNull(), cyclesCount: integer("cycles_count").notNull().default(0), actionsCount: integer("actions_count").notNull().default(0), externalActionsCount: integer("external_actions_count").notNull().default(0), llmRequests: integer("llm_requests").notNull().default(0), inputTokens: integer("input_tokens").notNull().default(0), outputTokens: integer("output_tokens").notNull().default(0), estimatedCostCents: integer("estimated_cost_cents").notNull().default(0),
 });
 
+export const companyIntelligenceSnapshots = sqliteTable("company_intelligence_snapshots", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  snapshotDate: text("snapshot_date").notNull(),
+  goalId: integer("goal_id"),
+  metricName: text("metric_name"),
+  metricValue: real("metric_value"),
+  previousValue: real("previous_value"),
+  metricDelta: real("metric_delta"),
+  healthScore: integer("health_score").notNull().default(50),
+  evidenceJson: text("evidence_json").notNull().default("[]"),
+  summary: text("summary").notNull(),
+  ...timestamps,
+});
+
 export const connections = sqliteTable("connections", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   workspaceId: text("workspace_id").notNull(),

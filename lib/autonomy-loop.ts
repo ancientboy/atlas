@@ -4,6 +4,10 @@ type Db = D1Database;
 
 const nowText = () => new Date().toISOString();
 
+export function opportunityDedupeKey(workspaceId: string, title: string) {
+  return `${workspaceId}:observation:${title.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-").replace(/^-|-$/g, "").slice(0, 140)}`;
+}
+
 export function scoreAutonomyOpportunity(input: { confidence: number; signal?: string | null; summary?: string | null }) {
   const signal = `${input.signal ?? ""} ${input.summary ?? ""}`.toLowerCase();
   let score = Math.max(0, Math.min(100, Math.round(input.confidence)));
@@ -23,8 +27,9 @@ export async function promoteInsightsToOpportunities(db: Db, workspaceId: string
   let promoted = 0;
   for (const insight of insights.results) {
     const score = scoreAutonomyOpportunity({ confidence: insight.confidence, signal: insight.title, summary: insight.summary });
-    const inserted = await db.prepare("INSERT INTO opportunities (workspace_id, title, source, observed_at, confidence, summary, suggested_action, status, signal, autonomy_score) SELECT ?, ?, 'Observation Engine', ?, ?, ?, ?, 'new', 'Observation insight', ? WHERE NOT EXISTS (SELECT 1 FROM opportunities WHERE workspace_id = ? AND title = ?)")
-      .bind(workspaceId, insight.title, insight.createdAt, insight.confidence, insight.summary, "Prepare a small approval-gated growth campaign based on this observed signal.", score, workspaceId, insight.title)
+    const dedupeKey = opportunityDedupeKey(workspaceId, insight.title);
+    const inserted = await db.prepare("INSERT INTO opportunities (workspace_id, title, source, observed_at, confidence, summary, suggested_action, status, signal, autonomy_score, dedupe_key, evidence_json, expected_impact, effort, risk_level, discovered_at, last_seen_at) VALUES (?, ?, 'Observation Engine', ?, ?, ?, ?, 'new', 'Observation insight', ?, ?, ?, 'Create a measurable approval-gated growth experiment.', 2, 1, ?, ?) ON CONFLICT(workspace_id, dedupe_key) DO UPDATE SET observed_at = excluded.observed_at, last_seen_at = excluded.last_seen_at, confidence = MAX(opportunities.confidence, excluded.confidence), summary = excluded.summary, evidence_json = excluded.evidence_json, autonomy_score = MAX(opportunities.autonomy_score, excluded.autonomy_score)")
+      .bind(workspaceId, insight.title, insight.createdAt, insight.confidence, insight.summary, "Prepare a small approval-gated growth campaign based on this observed signal.", score, dedupeKey, insight.evidenceJson, insight.createdAt, insight.createdAt)
       .run();
     if ((inserted.meta?.changes ?? 0) > 0) promoted += 1;
     await db.prepare("UPDATE insights SET status = 'promoted' WHERE id = ? AND workspace_id = ?").bind(insight.id, workspaceId).run();

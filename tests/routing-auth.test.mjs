@@ -235,6 +235,19 @@ test("workspace autonomy switch and approval-to-publication runtime are packaged
   assert.match(validation, /0012_workspace_autonomy_control\.sql/);
 });
 
+test("Company Runtime keeps user-triggered cycles separate from the authenticated scheduler", async () => {
+  const [tick, dashboard, runtime] = await Promise.all([
+    readFile(new URL("../app/api/runtime/tick/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../components/atlas-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/company-runtime.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(tick, /isRuntimeRequestAuthorized/);
+  assert.match(tick, /runDueCompanyRuntimeCycles/);
+  assert.match(dashboard, /run_company_runtime/);
+  assert.match(dashboard, /COMPANY RUNTIME/);
+  assert.match(runtime, /runCompanyRuntimeCycle/);
+});
+
 test("workspace connection center uses OAuth state, encrypted credentials, and revocation", async () => {
   const [start, callback, manage, dashboard, migration, validation] = await Promise.all([
     readFile(new URL("../app/api/connections/start/route.ts", import.meta.url), "utf8"),

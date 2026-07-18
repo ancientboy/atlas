@@ -305,6 +305,46 @@ export const opportunities = sqliteTable("opportunities", {
   signal: text("signal").notNull(),
   autonomyScore: integer("autonomy_score").notNull().default(0),
   autoCreatedCampaignId: integer("auto_created_campaign_id"),
+  dedupeKey: text("dedupe_key"),
+  evidenceJson: text("evidence_json").notNull().default("[]"),
+  expectedImpact: text("expected_impact"),
+  effort: integer("effort"),
+  riskLevel: integer("risk_level").notNull().default(1),
+  discoveredAt: text("discovered_at"),
+  lastSeenAt: text("last_seen_at"),
+  relatedGoalId: integer("related_goal_id"),
+});
+
+export const workspaceRuntimeSettings = sqliteTable("workspace_runtime_settings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  enabled: integer("enabled").notNull().default(1),
+  mode: text("mode").notNull().default("copilot"),
+  tickIntervalMinutes: integer("tick_interval_minutes").notNull().default(360),
+  dailyActionLimit: integer("daily_action_limit").notNull().default(8),
+  dailyLlmBudgetCents: integer("daily_llm_budget_cents").notNull().default(100),
+  dailyExternalActionLimit: integer("daily_external_action_limit").notNull().default(2),
+  quietHoursStart: text("quiet_hours_start"), quietHoursEnd: text("quiet_hours_end"), timezone: text("timezone").notNull().default("UTC"),
+  autonomyLevel: integer("autonomy_level").notNull().default(1), autoExecuteRiskLevel: integer("auto_execute_risk_level").notNull().default(1),
+  pausedReason: text("paused_reason"), lastTickAt: text("last_tick_at"), nextTickAt: text("next_tick_at"), ...timestamps,
+});
+export const runtimeCycles = sqliteTable("runtime_cycles", {
+  id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), triggerType: text("trigger_type").notNull(), status: text("status").notNull(),
+  startedAt: text("started_at").notNull(), completedAt: text("completed_at"), currentStage: text("current_stage").notNull(), observationsCount: integer("observations_count").notNull().default(0),
+  opportunitiesCount: integer("opportunities_count").notNull().default(0), plansCount: integer("plans_count").notNull().default(0), tasksCreatedCount: integer("tasks_created_count").notNull().default(0), tasksExecutedCount: integer("tasks_executed_count").notNull().default(0), approvalsCreatedCount: integer("approvals_created_count").notNull().default(0),
+  llmTokensUsed: integer("llm_tokens_used").notNull().default(0), estimatedCostCents: integer("estimated_cost_cents").notNull().default(0), summary: text("summary"), errorCode: text("error_code"), errorMessage: text("error_message"), idempotencyKey: text("idempotency_key").notNull(), createdAt: text("created_at").notNull(),
+});
+export const companyGoals = sqliteTable("company_goals", {
+  id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), title: text("title").notNull(), description: text("description"), goalType: text("goal_type").notNull(), targetMetric: text("target_metric"), targetValue: real("target_value"), currentValue: real("current_value"), deadline: text("deadline"), priority: integer("priority").notNull().default(1), status: text("status").notNull().default("active"), constraintsJson: text("constraints_json").notNull().default("{}"), ...timestamps,
+});
+export const companyPlans = sqliteTable("company_plans", {
+  id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), goalId: integer("goal_id"), opportunityId: integer("opportunity_id"), title: text("title").notNull(), hypothesis: text("hypothesis").notNull(), strategy: text("strategy").notNull(), expectedImpact: text("expected_impact").notNull(), confidence: integer("confidence").notNull().default(50), riskLevel: integer("risk_level").notNull().default(1), estimatedCostCents: integer("estimated_cost_cents").notNull().default(0), status: text("status").notNull().default("planned"), createdByAgentId: integer("created_by_agent_id"), ...timestamps,
+});
+export const actionExecutions = sqliteTable("action_executions", {
+  id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), cycleId: integer("cycle_id").notNull(), planId: integer("plan_id"), taskId: integer("task_id"), agentId: integer("agent_id"), actionType: text("action_type").notNull(), riskLevel: integer("risk_level").notNull(), policyDecision: text("policy_decision").notNull(), status: text("status").notNull(), inputJson: text("input_json").notNull().default("{}"), outputJson: text("output_json"), externalReceipt: text("external_receipt"), idempotencyKey: text("idempotency_key").notNull(), costCents: integer("cost_cents").notNull().default(0), startedAt: text("started_at").notNull(), completedAt: text("completed_at"), rollbackStatus: text("rollback_status"), errorMessage: text("error_message"),
+});
+export const runtimeDailyUsage = sqliteTable("runtime_daily_usage", {
+  workspaceId: text("workspace_id").notNull(), usageDate: text("usage_date").notNull(), cyclesCount: integer("cycles_count").notNull().default(0), actionsCount: integer("actions_count").notNull().default(0), externalActionsCount: integer("external_actions_count").notNull().default(0), llmRequests: integer("llm_requests").notNull().default(0), inputTokens: integer("input_tokens").notNull().default(0), outputTokens: integer("output_tokens").notNull().default(0), estimatedCostCents: integer("estimated_cost_cents").notNull().default(0),
 });
 
 export const connections = sqliteTable("connections", {

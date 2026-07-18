@@ -5,6 +5,7 @@ import { runWorkspaceObservationScan } from "../../../../lib/observation-engine"
 import { syncPostHogConnection } from "../../../../lib/posthog-analytics";
 import { runWorkspaceAutonomyLoop } from "../../../../lib/autonomy-loop";
 import { runDuePublicationJobs } from "../../../../lib/publication-runtime";
+import { runDueCompanyRuntimeCycles } from "../../../../lib/company-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +32,10 @@ export async function POST(request: Request) {
   }
 
   try {
+    const companyRuntime = await runDueCompanyRuntimeCycles(env.DB);
     const result = await runAgentRuntimeTick(env.DB, executeRuntimeJob);
     const publications = await runDuePublicationJobs(env.DB, env as unknown as Record<string, string | undefined>);
-    return Response.json({ ok: true, ...result, publications });
+    return Response.json({ ok: true, companyRuntime, ...result, publications });
   } catch {
     return Response.json({ error: "Runtime tick failed safely." }, { status: 500 });
   }

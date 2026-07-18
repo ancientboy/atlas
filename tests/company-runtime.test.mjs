@@ -24,6 +24,7 @@ test("runtime quiet hours support overnight windows and stable idempotency bucke
   const now = new Date("2026-01-01T12:01:00Z");
   assert.equal(runtimeCycleKey("workspace-a", "scheduled", now), runtimeCycleKey("workspace-a", "scheduled", new Date("2026-01-01T12:14:00Z")));
   assert.notEqual(runtimeCycleKey("workspace-a", "scheduled", now), runtimeCycleKey("workspace-b", "scheduled", now));
+  assert.equal(isQuietHour(new Date("2026-01-01T14:30:00Z"), "22:00", "07:00", "America/Los_Angeles"), true);
 });
 
 test("company runtime migration is workspace scoped and packaged", async () => {

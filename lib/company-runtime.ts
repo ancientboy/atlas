@@ -1,4 +1,5 @@
 import { runWorkspaceAutonomyLoop } from "./autonomy-loop.ts";
+import { refreshCompanyIntelligence } from "./company-intelligence.ts";
 
 type Db = D1Database;
 
@@ -103,6 +104,7 @@ export async function runCompanyRuntimeCycle(db: Db, workspaceId: string, trigge
       await db.prepare("UPDATE runtime_cycles SET status = 'paused_budget', current_stage = 'budget', completed_at = ?, summary = ? WHERE id = ? AND workspace_id = ?").bind(nowText(), "Runtime paused because the daily resource limit was reached.", cycleId, workspaceId).run();
       return { skipped: true, reason: "daily_limit", cycleId };
     }
+    const intelligence = await refreshCompanyIntelligence(db, workspaceId, now);
     const state = await loadCompanyState(db, workspaceId);
     const goalId = await ensureGoal(db, workspaceId, state.product as { name?: string; growthGoal?: string | null } | null);
     await db.prepare("UPDATE runtime_cycles SET current_stage = 'prioritize', observations_count = ? WHERE id = ? AND workspace_id = ?").bind(state.observations.length, cycleId, workspaceId).run();
@@ -119,7 +121,7 @@ export async function runCompanyRuntimeCycle(db: Db, workspaceId: string, trigge
       const execution = await db.prepare("INSERT OR IGNORE INTO action_executions (workspace_id, cycle_id, plan_id, task_id, agent_id, action_type, risk_level, policy_decision, status, input_json, output_json, idempotency_key, started_at, completed_at) VALUES (?, ?, ?, ?, ?, 'create_internal_task', 1, ?, ?, ?, ?, ?, ?, ?)").bind(workspaceId, cycleId, planId, taskId, state.agentId, policy.decision, policy.decision === "execute" ? "completed" : "waiting_approval", JSON.stringify({ opportunityId: opportunity.id }), JSON.stringify({ policy: policy.policyCode, taskId }), `runtime-action:${cycleId}:create_internal_task`, startedAt, policy.decision === "execute" ? startedAt : null).run();
       if ((execution.meta?.changes ?? 0) > 0 && policy.decision === "execute") executed = 1;
     }
-    const summary = opportunity ? `Atlas prioritized ${opportunity.title}${autonomy.campaigns ? ` and prepared ${autonomy.campaigns} approval-gated campaign(s)` : ""}.` : "Atlas refreshed company state; no new qualified opportunity needs a plan yet.";
+    const summary = opportunity ? `Atlas prioritized ${opportunity.title}${autonomy.campaigns ? ` and prepared ${autonomy.campaigns} approval-gated campaign(s)` : ""}. ${intelligence.summary}` : `Atlas refreshed company state; no new qualified opportunity needs a plan yet. ${intelligence.summary}`;
     await db.batch([
       db.prepare("INSERT INTO runtime_daily_usage (workspace_id, usage_date, cycles_count, actions_count, external_actions_count, estimated_cost_cents) VALUES (?, ?, 1, ?, 0, 0) ON CONFLICT(workspace_id, usage_date) DO UPDATE SET cycles_count = cycles_count + 1, actions_count = actions_count + excluded.actions_count").bind(workspaceId, dayKey(now), executed),
       db.prepare("INSERT INTO memories (workspace_id, memory_type, title, content, source, confidence, status, last_verified_at) SELECT ?, 'Runtime reflection', ?, ?, 'Company Runtime', 70, 'unverified', ? WHERE NOT EXISTS (SELECT 1 FROM memories WHERE workspace_id = ? AND source = 'Company Runtime' AND title = ?)").bind(workspaceId, `Runtime reflection · ${dayKey(now)}`, summary, startedAt, workspaceId, `Runtime reflection · ${dayKey(now)}`),

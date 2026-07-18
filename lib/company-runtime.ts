@@ -27,9 +27,14 @@ export function evaluateActionPolicy(input: { mode: RuntimeMode; riskLevel: numb
   return { decision: "execute", reason: "Internal, reversible action is within policy.", riskLevel, policyCode: "internal_auto" };
 }
 
-export function isQuietHour(now: Date, start: string | null, end: string | null) {
+export function isQuietHour(now: Date, start: string | null, end: string | null, timezone = "UTC") {
   if (!start || !end || !/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end) || start === end) return false;
-  const minute = now.getUTCHours() * 60 + now.getUTCMinutes();
+  let minute: number;
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
+    const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+    minute = value("hour") * 60 + value("minute");
+  } catch { return false; }
   const toMinutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
   const from = toMinutes(start); const until = toMinutes(end);
   return from < until ? minute >= from && minute < until : minute >= from || minute < until;
@@ -84,7 +89,7 @@ export async function runCompanyRuntimeCycle(db: Db, workspaceId: string, trigge
   const settings = await ensureRuntimeSettings(db, workspaceId);
   if (!workspace || !settings || workspace.autonomyEnabled === 0 || settings.enabled === 0 || settings.mode === "paused") return { skipped: true, reason: "paused" };
   if (trigger === "scheduled" && settings.mode === "manual") return { skipped: true, reason: "manual_mode" };
-  if (trigger === "scheduled" && isQuietHour(now, settings.quietHoursStart, settings.quietHoursEnd)) return { skipped: true, reason: "quiet_hours" };
+  if (trigger === "scheduled" && isQuietHour(now, settings.quietHoursStart, settings.quietHoursEnd, settings.timezone)) return { skipped: true, reason: "quiet_hours" };
   const token = crypto.randomUUID();
   if (!(await acquireWorkspaceRuntimeLock(db, workspaceId, token, now))) return { skipped: true, reason: "locked" };
   const key = options.idempotencyKey ?? runtimeCycleKey(workspaceId, trigger, now);

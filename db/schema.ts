@@ -19,6 +19,8 @@ export const workspaces = sqliteTable("workspaces", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   createdByUserId: text("created_by_user_id").notNull(),
+  autonomyEnabled: integer("autonomy_enabled").notNull().default(1),
+  autonomyUpdatedAt: text("autonomy_updated_at"),
   ...timestamps,
 });
 
@@ -155,6 +157,8 @@ export const agents = sqliteTable("agents", {
   successRate: integer("success_rate").notNull().default(0),
   currentTask: text("current_task").notNull(),
   tools: text("tools").notNull(),
+  goal: text("goal"),
+  permissionsJson: text("permissions_json").notNull().default("[]"),
   ...timestamps,
 });
 
@@ -230,6 +234,62 @@ export const observations = sqliteTable("observations", {
   rawData: text("raw_data"),
   observedAt: text("observed_at").notNull(),
   processed: integer("processed").notNull().default(0),
+  sourceId: integer("source_id"),
+  fingerprint: text("fingerprint"),
+  title: text("title"),
+  url: text("url"),
+  confidence: integer("confidence").notNull().default(60),
+});
+
+export const observationSources = sqliteTable("observation_sources", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  sourceKey: text("source_key").notNull(),
+  sourceType: text("source_type").notNull(),
+  name: text("name").notNull(),
+  targetUrl: text("target_url").notNull(),
+  status: text("status").notNull().default("active"),
+  cadenceMinutes: integer("cadence_minutes").notNull().default(1440),
+  cursorJson: text("cursor_json").notNull().default("{}"),
+  contentHash: text("content_hash"),
+  lastCheckedAt: text("last_checked_at"),
+  lastChangedAt: text("last_changed_at"),
+  lastStatus: text("last_status"),
+  lastError: text("last_error"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  nextRunAt: text("next_run_at"),
+  ...timestamps,
+});
+
+export const observationRuns = sqliteTable("observation_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  sourceId: integer("source_id").notNull(),
+  jobId: integer("job_id"),
+  status: text("status").notNull(),
+  cursorBeforeJson: text("cursor_before_json").notNull().default("{}"),
+  cursorAfterJson: text("cursor_after_json"),
+  itemsSeen: integer("items_seen").notNull().default(0),
+  itemsCreated: integer("items_created").notNull().default(0),
+  errorCode: text("error_code"),
+  startedAt: text("started_at").notNull(),
+  finishedAt: text("finished_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const insights = sqliteTable("insights", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  sourceId: integer("source_id"),
+  observationId: integer("observation_id"),
+  fingerprint: text("fingerprint").notNull(),
+  insightType: text("insight_type").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary").notNull(),
+  confidence: integer("confidence").notNull(),
+  evidenceJson: text("evidence_json").notNull().default("[]"),
+  status: text("status").notNull().default("new"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
 export const opportunities = sqliteTable("opportunities", {
@@ -243,6 +303,8 @@ export const opportunities = sqliteTable("opportunities", {
   suggestedAction: text("suggested_action").notNull(),
   status: text("status").notNull().default("new"),
   signal: text("signal").notNull(),
+  autonomyScore: integer("autonomy_score").notNull().default(0),
+  autoCreatedCampaignId: integer("auto_created_campaign_id"),
 });
 
 export const connections = sqliteTable("connections", {
@@ -378,6 +440,22 @@ export const campaignMetricSnapshots = sqliteTable("campaign_metric_snapshots", 
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const analyticsSyncRuns = sqliteTable("analytics_sync_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  connectionId: integer("connection_id"),
+  provider: text("provider").notNull(),
+  metricDate: text("metric_date").notNull(),
+  status: text("status").notNull(),
+  visits: integer("visits").notNull().default(0),
+  signups: integer("signups").notNull().default(0),
+  paid: integer("paid").notNull().default(0),
+  errorCode: text("error_code"),
+  startedAt: text("started_at").notNull(),
+  finishedAt: text("finished_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const dailyGrowthSnapshots = sqliteTable("daily_growth_snapshots", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   workspaceId: text("workspace_id").notNull(),
@@ -389,6 +467,80 @@ export const dailyGrowthSnapshots = sqliteTable("daily_growth_snapshots", {
   attributedSignups: integer("attributed_signups").notNull().default(0),
   attributedPaid: integer("attributed_paid").notNull().default(0),
   reflectionJson: text("reflection_json"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const agentSchedules = sqliteTable("agent_schedules", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  agentId: integer("agent_id").notNull(),
+  scheduleKey: text("schedule_key").notNull(),
+  timezone: text("timezone").notNull().default("UTC"),
+  localTime: text("local_time").notNull().default("08:00"),
+  enabled: integer("enabled").notNull().default(1),
+  lastRunDate: text("last_run_date"),
+  lastRunAt: text("last_run_at"),
+  lastStatus: text("last_status"),
+  lastError: text("last_error"),
+  cadenceMinutes: integer("cadence_minutes"),
+  nextRunAt: text("next_run_at"),
+  ...timestamps,
+});
+
+export const agentJobs = sqliteTable("agent_jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  agentId: integer("agent_id").notNull(),
+  taskId: integer("task_id"),
+  scheduleId: integer("schedule_id"),
+  jobType: text("job_type").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  status: text("status").notNull().default("queued"),
+  scheduledFor: text("scheduled_for").notNull(),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(3),
+  nextAttemptAt: text("next_attempt_at"),
+  leaseToken: text("lease_token"),
+  leaseExpiresAt: text("lease_expires_at"),
+  inputJson: text("input_json").notNull().default("{}"),
+  outputJson: text("output_json"),
+  lastError: text("last_error"),
+  startedAt: text("started_at"),
+  finishedAt: text("finished_at"),
+  ...timestamps,
+});
+
+export const agentToolCalls = sqliteTable("agent_tool_calls", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  jobId: integer("job_id"),
+  runId: integer("run_id"),
+  toolName: text("tool_name").notNull(),
+  status: text("status").notNull(),
+  inputJson: text("input_json").notNull().default("{}"),
+  outputJson: text("output_json"),
+  errorCode: text("error_code"),
+  startedAt: text("started_at").notNull(),
+  finishedAt: text("finished_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const agentDecisions = sqliteTable("agent_decisions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workspaceId: text("workspace_id").notNull(),
+  agentId: integer("agent_id").notNull(),
+  runId: integer("run_id"),
+  decisionDate: text("decision_date").notNull(),
+  decisionType: text("decision_type").notNull(),
+  title: text("title").notNull(),
+  rationale: text("rationale").notNull(),
+  evidenceJson: text("evidence_json").notNull().default("[]"),
+  expectedImpact: text("expected_impact").notNull(),
+  priorityScore: integer("priority_score").notNull(),
+  confidence: integer("confidence").notNull(),
+  riskLevel: integer("risk_level").notNull().default(1),
+  status: text("status").notNull().default("proposed"),
+  payloadJson: text("payload_json").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 

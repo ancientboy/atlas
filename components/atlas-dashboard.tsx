@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { atlasV2Seed, type Approval, type AtlasV2Data, type CampaignAsset, type Opportunity } from "../lib/atlas-v2-data";
+import { atlasV2Seed, type Approval, type AtlasV2Data, type CampaignAsset, type GrowthReflection, type Opportunity } from "../lib/atlas-v2-data";
 import type { ProductAnalysisCore } from "../lib/atlas-runtime";
 import { campaignTrackingUrl } from "../lib/campaign-tracking";
 import { campaignChannelLimit, campaignChannels, type CampaignChannel } from "../lib/campaign-channels";
@@ -29,7 +29,7 @@ const channelOptions = Object.entries(campaignChannels) as [CampaignChannel, (ty
 function statusTone(status: string) { return status.replaceAll("_", "-"); }
 function riskTone(level: number) { return level === 1 ? "safe" : level === 2 ? "review" : "manual"; }
 function statusText(status: string, t: typeof copy.zh) {
-  const map: Record<string, string> = { queued: t.pending, running: t.running, waiting_approval: t.approval, approved: t.approved, rejected: t.rejected, completed: t.completedLabel, failed: t.failed, cancelled: t.cancelled, pending: t.pending, deferred: t.deferred, active: t.active, scheduled: t.scheduled, validated: t.validated, unverified: t.unverified, saved: t.saved, ignored: t.ignored };
+  const map: Record<string, string> = { queued: t.pending, retrying: t.pending, running: t.running, waiting_approval: t.approval, approved: t.approved, rejected: t.rejected, completed: t.completedLabel, failed: t.failed, cancelled: t.cancelled, pending: t.pending, deferred: t.deferred, active: t.active, scheduled: t.scheduled, validated: t.validated, unverified: t.unverified, saved: t.saved, ignored: t.ignored };
   return map[status] ?? status;
 }
 
@@ -131,6 +131,16 @@ export function AtlasDashboard({ user }: { user?: { displayName: string; email: 
     if (response.ok) { setData(result); setNotice(locale === "zh" ? "Campaign 已更新。" : "Campaign updated."); } else setNotice(result.error || (locale === "zh" ? "更新失败。" : "Update failed."));
   }
 
+  async function setAutonomyEnabled(enabled: boolean) {
+    const response = await fetch(`/api/atlas-v2?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "set_workspace_autonomy", enabled }) });
+    const result = await response.json().catch(() => ({}));
+    if (response.ok) {
+      setData(result);
+      setNotice(enabled ? (locale === "zh" ? "自动执行已开启。" : "Automation enabled.") : (locale === "zh" ? "自动执行已关闭，后台队列已暂停。" : "Automation disabled and queued work paused."));
+      setTimeout(() => setNotice(""), 3200);
+    } else setNotice(result.error || (locale === "zh" ? "无法更新自动执行开关。" : "Could not update automation."));
+  }
+
   if (loadError) return <div className="v2-shell v2-centered"><main className="v2-error-card" role="alert"><div className="v2-brand"><span>▲</span><div><strong>ATLAS</strong><small>LUMEWORD AI WORKSPACE</small></div></div><h1>{locale === "zh" ? "工作台暂时无法打开" : "Workspace could not open"}</h1><p>{loadError}</p><button onClick={() => void loadWorkspace()}>{locale === "zh" ? "重试" : "Retry"}</button></main></div>;
   if (isLoading || !data.product || data.product.analysisStatus !== "completed") return <div className="v2-shell v2-centered"><main className="v2-error-card"><div className="v2-brand"><span>▲</span><div><strong>ATLAS</strong><small>LUMEWORD AI WORKSPACE</small></div></div><p>{locale === "zh" ? "正在打开你的工作台…" : "Opening your workspace…"}</p></main></div>;
 
@@ -147,7 +157,7 @@ export function AtlasDashboard({ user }: { user?: { displayName: string; email: 
     <main className="v2-main">
       <header className="v2-header"><div><span className="breadcrumb">ATLAS / {nav.find((item) => item.id === view)?.label?.[locale] ?? t[nav.find((item) => item.id === view)?.key ?? "today"]}</span></div><div className="workflow"><span>{t.observe}</span><i /> <span>{t.analyze}</span><i /> <span>{t.plan}</span><i /> <span>{t.execute}</span><i /> <span>{t.measure}</span><i /> <span>{t.reflect}</span></div></header>
       <div className="v2-content">
-        {view === "today" && <Today t={t} data={data} tasks={todayTasks} approvals={pendingApprovals} onSelectApproval={setSelectedApproval} onReflect={() => mutate("run_daily_reflection", 0, locale === "zh" ? "今日增长快照和计划已刷新。" : "Today's growth snapshot and plan were refreshed.")} />}
+        {view === "today" && <Today t={t} data={data} tasks={todayTasks} approvals={pendingApprovals} onSelectApproval={setSelectedApproval} onReflect={() => mutate("run_daily_reflection", 0, locale === "zh" ? "今日增长快照和计划已刷新。" : "Today's growth snapshot and plan were refreshed.")} onObserve={() => mutate("run_observation_scan", 0, locale === "zh" ? "观察源已刷新，新信号会进入下一次决策。" : "Observation sources refreshed. New signals will enter the next decision.")} onToggleAutonomy={setAutonomyEnabled} />}
         {view === "product-intelligence" && <ProductIntelligence locale={locale} data={data} />}
         {view === "approvals" && <Approvals t={t} approvals={data.approvals} tasks={data.tasks} onSelect={setSelectedApproval} />}
         {view === "activity" && <Activity t={t} data={data} />}
@@ -208,13 +218,55 @@ function IntelligenceList({ index, title, items }: { index: string; title: strin
   return <article><header><span>{index}</span><h2>{title}</h2></header><ul>{items.map((item, itemIndex) => <li key={`${item}-${itemIndex}`}><b>{String(itemIndex + 1).padStart(2, "0")}</b><span>{item}</span></li>)}</ul></article>;
 }
 
-function Today({ t, data, tasks, approvals, onSelectApproval, onReflect }: { t: typeof copy.zh; data: AtlasV2Data; tasks: AtlasV2Data["tasks"]; approvals: Approval[]; onSelectApproval: (item: Approval) => void; onReflect: () => Promise<void> }) {
+function Today({ t, data, tasks, approvals, onSelectApproval, onReflect, onObserve, onToggleAutonomy }: { t: typeof copy.zh; data: AtlasV2Data; tasks: AtlasV2Data["tasks"]; approvals: Approval[]; onSelectApproval: (item: Approval) => void; onReflect: () => Promise<void>; onObserve: () => Promise<void>; onToggleAutonomy: (enabled: boolean) => Promise<void> }) {
   const zh = t.workspace === copy.zh.workspace;
   const latest = data.growthSnapshots?.[0];
   const reflection = latest?.reflection;
+  const runtimeSchedule = data.runtime?.schedule;
+  const latestJob = data.runtime?.jobs?.[0];
   return <><section className="today-intro"><div><p>{t.role} · {t.active}</p><h1>{t.todayTitle}</h1><span>{t.todayLead}</span></div><div className="today-summary"><strong>{data.metrics.yesterdayCompleted}</strong><span>{t.completed}</span><i /> <strong>{tasks.length}</strong><span>{t.planned}</span><i /> <strong>{approvals.length}</strong><span>{t.waiting}</span></div></section>
-    <section className="today-grid"><div className="today-primary">{reflection && <section className="daily-brief"><header><div><p>DAILY GROWTH REFLECTION</p><h2>{zh ? "Atlas 今日增长简报" : "Atlas daily growth brief"}</h2></div><span>{latest.snapshotDate}</span></header><p>{reflection.summary}</p><div className="reflection-signals"><span>{zh ? "曝光" : "Impressions"}<b>{reflection.signals.impressions.toLocaleString()}</b></span><span>{zh ? "点击" : "Clicks"}<b>{reflection.signals.clicks.toLocaleString()}</b></span><span>{zh ? "转化" : "Conversions"}<b>{reflection.signals.conversions.toLocaleString()}</b></span><span>CTR<b>{reflection.signals.ctr ?? 0}%</b></span></div>{reflection.learnings?.length ? <ul>{reflection.learnings.map((item) => <li key={item}>{item}</li>)}</ul> : null}<footer><div><small>{zh ? "今天最值得做" : "NEXT BEST ACTION"}</small><strong>{reflection.nextAction}</strong></div><button onClick={() => void onReflect()}>{zh ? "刷新复盘" : "Refresh reflection"}</button></footer></section>}<Panel title={t.planned} eyebrow="NEXT BEST ACTIONS"><div className="task-stack">{tasks.map((task) => <TaskCard key={task.id} task={task} t={t} />)}</div></Panel><Panel title={t.discoveries} eyebrow="TOP OPPORTUNITY"><div className="discovery-list top-opportunity">{data.opportunities.slice(0, 2).map((item) => <div key={item.id}><span>{item.signal}</span><div><strong>{item.title}</strong><small>{item.summary}</small></div><b>{item.confidence}%</b></div>)}</div></Panel><Panel title={t.activity} eyebrow="RECENT ACTIVITY"><div className="activity-mini">{data.runs.slice(0, 3).map((run) => <div key={run.id}><span className={`run-dot ${statusTone(run.status)}`} /><div><strong>{run.task}</strong><small>{run.startedAt} · {statusText(run.status, t)}</small></div></div>)}</div></Panel></div>
+    <section className={`runtime-health ${runtimeSchedule?.lastStatus === "failed" || latestJob?.status === "failed" ? "has-error" : ""}`}><div><span className="live" /><div><small>BACKGROUND GROWTH RUNTIME</small><strong>{runtimeSchedule ? (zh ? `每日 ${runtimeSchedule.localTime} · ${runtimeSchedule.timezone}` : `Daily ${runtimeSchedule.localTime} · ${runtimeSchedule.timezone}`) : (zh ? "正在初始化后台计划" : "Initializing background schedule")}</strong></div></div><dl><div><dt>{zh ? "自动执行" : "Automation"}</dt><dd><button className={`autonomy-toggle ${data.workspace?.autonomyEnabled === false ? "off" : ""}`} onClick={() => void onToggleAutonomy(data.workspace?.autonomyEnabled === false)}>{data.workspace?.autonomyEnabled === false ? (zh ? "关闭" : "Off") : (zh ? "开启" : "On")}</button></dd></div><div><dt>{zh ? "上次运行" : "Last run"}</dt><dd>{runtimeSchedule?.lastRunAt ? new Date(runtimeSchedule.lastRunAt).toLocaleString(zh ? "zh-CN" : "en-US") : (zh ? "尚未运行" : "Not run yet")}</dd></div><div><dt>{zh ? "最新任务" : "Latest job"}</dt><dd className={`state ${statusTone(latestJob?.status ?? runtimeSchedule?.lastStatus ?? "scheduled")}`}>{statusText(latestJob?.status ?? runtimeSchedule?.lastStatus ?? "scheduled", t)}</dd></div></dl>{(runtimeSchedule?.lastError || latestJob?.lastError) && <p>{zh ? "后台任务失败，Atlas 会按照重试策略安全恢复。" : "The background job failed and will recover through the retry policy."}</p>}</section>
+    <ObservationHealth data={data} zh={zh} onScan={onObserve} />
+    <AnalyticsHealth data={data} zh={zh} />
+    <section className="today-grid"><div className="today-primary">{reflection && <FounderDailyBrief reflection={reflection} date={latest.snapshotDate} zh={zh} onReflect={onReflect} />}<Panel title={t.planned} eyebrow="NEXT BEST ACTIONS"><div className="task-stack">{tasks.map((task) => <TaskCard key={task.id} task={task} t={t} />)}</div></Panel><Panel title={t.discoveries} eyebrow="TOP OPPORTUNITY"><div className="discovery-list top-opportunity">{data.opportunities.slice(0, 2).map((item) => <div key={item.id}><span>{item.signal}</span><div><strong>{item.title}</strong><small>{item.summary}</small></div><b>{item.confidence}%</b></div>)}</div></Panel><Panel title={t.activity} eyebrow="RECENT ACTIVITY"><div className="activity-mini">{data.runs.slice(0, 3).map((run) => <div key={run.id}><span className={`run-dot ${statusTone(run.status)}`} /><div><strong>{run.task}</strong><small>{run.startedAt} · {statusText(run.status, t)}</small></div></div>)}</div></Panel></div>
       <aside className="today-side"><Panel title={t.waiting} eyebrow="APPROVAL QUEUE"><div className="approval-mini">{approvals.map((item) => <button key={item.id} onClick={() => onSelectApproval(item)}><span className={`risk ${riskTone(item.riskLevel)}`}>{t.level} {item.riskLevel}</span><strong>{item.title}</strong><small>{item.createdAt} · {item.actionType}</small><i>→</i></button>)}</div></Panel><Panel title={t.metrics} eyebrow="YESTERDAY"><div className="metric-list"><div><span>{t.visits}</span><strong>{data.metrics.visits.toLocaleString()}</strong></div><div><span>{t.signups}</span><strong>{data.metrics.signups}</strong></div><div><span>{t.paid}</span><strong>{data.metrics.paid}</strong></div><div><span>CVR</span><strong>{data.metrics.conversion}%</strong></div></div></Panel><div className="risk-note"><span>!</span><div><strong>{t.risks}</strong><p>{t.riskMessage}</p></div></div></aside></section></>;
+}
+
+function AnalyticsHealth({ data, zh }: { data: AtlasV2Data; zh: boolean }) {
+  const connection = data.platformConnections?.find((item) => item.provider === "posthog" && item.status === "connected");
+  if (!connection) return null;
+  const failed = connection.metadata.lastStatus === "failed";
+  return <section className={`analytics-health ${failed ? "has-error" : ""}`}><div><span className="live" /><div><small>POSTHOG · GROWTH METRICS</small><strong>{zh ? "真实访问、注册与付费数据已接入" : "Live visits, signups, and paid metrics connected"}</strong></div></div><div><span>{zh ? "最近同步" : "Last sync"}</span><b>{connection.lastSyncAt ? new Date(connection.lastSyncAt).toLocaleString(zh ? "zh-CN" : "en-US") : (zh ? "等待首次同步" : "Waiting for first sync")}</b>{failed && <small>{zh ? "同步失败，后台将安全重试" : "Sync failed; the runtime will retry safely"}</small>}</div></section>;
+}
+
+function ObservationHealth({ data, zh, onScan }: { data: AtlasV2Data; zh: boolean; onScan: () => Promise<void> }) {
+  const [scanning, setScanning] = useState(false);
+  const sources = data.observationEngine?.sources ?? [];
+  const insights = data.observationEngine?.insights ?? [];
+  const run = async () => { setScanning(true); try { await onScan(); } finally { setScanning(false); } };
+  return <section className="observation-health"><header><div><p>OBSERVATION ENGINE</p><h2>{zh ? "Atlas 正在观察什么" : "What Atlas is observing"}</h2></div><button disabled={scanning} onClick={() => void run()}>{scanning ? (zh ? "扫描中…" : "Scanning…") : (zh ? "立即扫描" : "Scan now")}</button></header>
+    <div className="observation-source-grid">{sources.length ? sources.map((source) => <article key={source.id} className={source.status === "degraded" ? "degraded" : ""}><div><span className="live" /><strong>{source.name}</strong><b>{source.lastStatus === "changed" ? (zh ? "发现变化" : "Changed") : source.lastStatus === "failed" ? (zh ? "等待重试" : "Retrying") : (zh ? "观察中" : "Watching")}</b></div><small>{source.sourceType.toUpperCase()} · {zh ? `每 ${Math.round(source.cadenceMinutes / 60)} 小时` : `Every ${Math.round(source.cadenceMinutes / 60)}h`}</small><p>{source.lastCheckedAt ? (zh ? `上次检查 ${new Date(source.lastCheckedAt).toLocaleString("zh-CN")}` : `Last checked ${new Date(source.lastCheckedAt).toLocaleString("en-US")}`) : (zh ? "等待首次扫描" : "Waiting for first scan")}</p></article>) : <article className="observation-empty"><strong>{zh ? "观察源正在初始化" : "Observation sources are initializing"}</strong><p>{zh ? "首次扫描会自动添加产品网站，并尝试发现公开 GitHub 仓库。" : "The first scan adds the product website and tries to discover a public GitHub repository."}</p></article>}</div>
+    {insights.length > 0 && <div className="observation-insights"><small>{zh ? "最新洞察" : "LATEST INSIGHTS"}</small>{insights.slice(0, 3).map((insight) => <div key={insight.id}><span>{insight.insightType.replaceAll("_", " ")}</span><strong>{insight.title}</strong><p>{insight.summary}</p><b>{insight.confidence}%</b></div>)}</div>}
+  </section>;
+}
+
+function FounderDailyBrief({ reflection, date, zh, onReflect }: { reflection: GrowthReflection; date: string; zh: boolean; onReflect: () => Promise<void> }) {
+  const brief = reflection.localized?.[zh ? "zh" : "en"];
+  const plan = reflection.decision;
+  const summary = brief?.summary ?? reflection.summary;
+  const nextAction = brief?.nextAction ?? reflection.nextAction;
+  return <section className="daily-brief founder-daily-brief">
+    <header><div><p>FOUNDER DAILY BRIEF</p><h2>{zh ? "Atlas 创始人晨报" : "Atlas Founder Daily Brief"}</h2></div><div className="brief-meta"><span>{date}</span>{plan && <b>{zh ? `决策置信度 ${plan.confidence}%` : `${plan.confidence}% decision confidence`}</b>}</div></header>
+    <p className="brief-summary">{summary}</p>
+    <div className="reflection-signals"><span>{zh ? "曝光" : "Impressions"}<b>{reflection.signals.impressions.toLocaleString()}</b></span><span>{zh ? "点击" : "Clicks"}<b>{reflection.signals.clicks.toLocaleString()}</b></span><span>{zh ? "转化" : "Conversions"}<b>{reflection.signals.conversions.toLocaleString()}</b></span><span>CTR<b>{reflection.signals.ctr ?? 0}%</b></span></div>
+    {brief ? <div className="brief-columns">
+      <article><small>{zh ? "昨天" : "YESTERDAY"}</small><ul>{brief.yesterday.slice(0, 3).map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></article>
+      <article><small>{zh ? "Atlas 的发现" : "DISCOVERED"}</small>{brief.discoveries.length ? <ul>{brief.discoveries.slice(0, 2).map((item, index) => <li key={`${item.title}-${index}`}><strong>{item.title}</strong><span>{item.source} · {item.confidence}%</span></li>)}</ul> : <p>{zh ? "尚无新的外部发现。" : "No new external discovery yet."}</p>}</article>
+      <article><small>{zh ? "今天" : "TODAY"}</small><ol>{brief.today.slice(0, 3).map((item) => <li key={`${item.priority}-${item.title}`}><b>0{item.priority}</b><span><strong>{item.title}</strong><small>{item.why}</small></span></li>)}</ol></article>
+    </div> : reflection.learnings?.length ? <ul>{reflection.learnings.map((item) => <li key={item}>{item}</li>)}</ul> : null}
+    <footer><div><small>{zh ? "下一步最应该做" : "NEXT BEST ACTION"}</small><strong>{nextAction}</strong>{brief?.today[0] && <span>{brief.today[0].expectedOutcome}</span>}</div><button onClick={() => void onReflect()}>{zh ? "重新生成晨报" : "Refresh brief"}</button></footer>
+    {brief && <p className="brief-risk">{brief.risk}</p>}
+  </section>;
 }
 
 function Panel({ title, eyebrow, children }: { title: string; eyebrow: string; children: React.ReactNode }) { return <section className="v2-panel"><header><p>{eyebrow}</p><h2>{title}</h2></header>{children}</section>; }
@@ -297,6 +349,7 @@ function Agents({ t, data }: { t: typeof copy.zh; data: AtlasV2Data }) { return 
 function Connections({ t, data, onReflect }: { t: typeof copy.zh; data: AtlasV2Data; onReflect: () => Promise<void> }) {
   const zh = t.workspace === copy.zh.workspace;
   const [wordpress, setWordpress] = useState({ siteUrl: "", username: "", applicationPassword: "" });
+  const [posthog, setPosthog] = useState({ posthogHost: "https://us.posthog.com", posthogProjectId: "", posthogApiKey: "", pageviewEvent: "$pageview", signupEvent: "user_signed_up", paidEvent: "subscription_started" });
   const [subreddit, setSubreddit] = useState("");
   const [busy, setBusy] = useState("");
   const workspaceId = data.workspace?.id ?? "";
@@ -309,12 +362,15 @@ function Connections({ t, data, onReflect }: { t: typeof copy.zh; data: AtlasV2D
     { id: "linkedin", name: "LinkedIn", note: zh ? "通过 LinkedIn 官方 OAuth 授权发布权限。" : "Authorize publishing through LinkedIn's official OAuth flow." },
     { id: "reddit", name: "Reddit", note: zh ? "通过 Reddit OAuth 连接；每条内容仍需审批。" : "Connect with Reddit OAuth; every post still requires approval." },
     { id: "analytics", name: "Atlas Tracking", note: zh ? "UTM、站内事件与转化归因已经启用。" : "UTM, first-party events, and attribution are enabled." },
+    { id: "posthog", name: "PostHog", note: zh ? "同步真实访问、注册与付费事件，供 Growth Operator 决策。" : "Sync live visits, signup, and paid events into Growth Operator decisions." },
     { id: "xiaohongshu", name: "小红书", note: zh ? "仅人工发布与链接回填，不使用非官方自动化。" : "Manual publishing and URL receipts only; no unofficial automation." },
   ];
   return <><section className="view-title"><p>OBSERVE · PUBLISH · MEASURE</p><h1>{t.connections}</h1><span>{t.connectionLead}</span><button className="review" onClick={() => void onReflect()}>{zh ? "立即生成今日复盘" : "Run today's reflection"}</button></section>
     <section className="connection-blueprint"><header><div><p>WORKSPACE CONNECTION VAULT</p><h2>{zh ? "每个工作区连接自己的账号" : "Every workspace connects its own accounts"}</h2></div><span>{zh ? "OAuth · 加密 Token · 可随时断开" : "OAuth · encrypted tokens · revocable"}</span></header><div>{[{ n: "01", z: "官方授权", e: "Official authorization", d: zh ? "Atlas 只保存平台返回的最小权限 Token，不接收账号密码。" : "Atlas stores least-privilege tokens and never asks for platform passwords." }, { n: "02", z: "工作区隔离", e: "Workspace isolation", d: zh ? "连接仅属于当前工作区，不会被其他产品或成员误用。" : "Connections belong only to the current workspace." }, { n: "03", z: "审批后发布", e: "Approval-gated publishing", d: zh ? "内容批准后才可以进入幂等发布队列。" : "Only approved assets enter the idempotent publishing queue." }, { n: "04", z: "回执与复盘", e: "Receipts and reflection", d: zh ? "保存公开链接并结合 UTM 与转化数据复盘。" : "Public receipts combine with UTM and conversion data." }].map((item) => <article key={item.n}><b>{item.n}</b><strong>{zh ? item.z : item.e}</strong><span>{item.d}</span></article>)}</div></section>
     <div className="connection-grid provider-grid">{providers.map((item) => { const active = item.id === "analytics" ? Boolean(data.publishing?.analytics) : Boolean(connection(item.id)); const appReady = item.id === "x" || item.id === "linkedin" || item.id === "reddit" ? Boolean(data.oauthApps?.[item.id]) : true; return <article key={item.id}><div><span>{item.id === "analytics" ? (zh ? "数据" : "Analytics") : (zh ? "分发" : "Distribution")}</span><b className={active ? "connected" : "available"}>{active ? t.connected : item.id === "xiaohongshu" ? (zh ? "仅手动" : "Manual only") : appReady ? (zh ? "可连接" : "Connect") : (zh ? "应用待配置" : "App setup required")}</b></div><h2>{item.name}</h2><p>{item.note}</p>{active && connection(item.id)?.accountLabel && <small>{connection(item.id)?.accountLabel}</small>}
       {item.id === "wordpress" && !active && <div className="connection-form"><input placeholder="https://your-site.com" value={wordpress.siteUrl} onChange={(e) => setWordpress({ ...wordpress, siteUrl: e.target.value })} /><input placeholder={zh ? "用户名" : "Username"} value={wordpress.username} onChange={(e) => setWordpress({ ...wordpress, username: e.target.value })} /><input type="password" autoComplete="new-password" placeholder="Application Password" value={wordpress.applicationPassword} onChange={(e) => setWordpress({ ...wordpress, applicationPassword: e.target.value })} /><button disabled={busy === "connect_wordpress" || !wordpress.siteUrl || !wordpress.username || !wordpress.applicationPassword} onClick={() => void manage({ action: "connect_wordpress", ...wordpress })}>{zh ? "验证并连接" : "Verify & connect"}</button></div>}
+      {item.id === "posthog" && !active && <div className="connection-form"><select value={posthog.posthogHost} onChange={(e) => setPosthog({ ...posthog, posthogHost: e.target.value })}><option value="https://us.posthog.com">PostHog US</option><option value="https://eu.posthog.com">PostHog EU</option></select><input inputMode="numeric" placeholder={zh ? "Project ID" : "Project ID"} value={posthog.posthogProjectId} onChange={(e) => setPosthog({ ...posthog, posthogProjectId: e.target.value })} /><input type="password" autoComplete="new-password" placeholder="Personal API Key (Query Read)" value={posthog.posthogApiKey} onChange={(e) => setPosthog({ ...posthog, posthogApiKey: e.target.value })} /><input placeholder="$pageview" value={posthog.pageviewEvent} onChange={(e) => setPosthog({ ...posthog, pageviewEvent: e.target.value })} /><input placeholder="user_signed_up" value={posthog.signupEvent} onChange={(e) => setPosthog({ ...posthog, signupEvent: e.target.value })} /><input placeholder="subscription_started" value={posthog.paidEvent} onChange={(e) => setPosthog({ ...posthog, paidEvent: e.target.value })} /><button disabled={busy === "connect_posthog" || !posthog.posthogProjectId || !posthog.posthogApiKey} onClick={() => void manage({ action: "connect_posthog", ...posthog })}>{zh ? "验证、连接并同步" : "Verify, connect & sync"}</button></div>}
+      {item.id === "posthog" && active && <div className="connection-sync"><small>{connection("posthog")?.lastSyncAt ? (zh ? `最近同步 ${new Date(connection("posthog")!.lastSyncAt!).toLocaleString("zh-CN")}` : `Last synced ${new Date(connection("posthog")!.lastSyncAt!).toLocaleString("en-US")}`) : (zh ? "等待首次同步" : "Waiting for first sync")}</small><button disabled={busy === "sync_posthog"} onClick={() => void manage({ action: "sync_posthog" })}>{zh ? "立即同步" : "Sync now"}</button></div>}
       {(item.id === "x" || item.id === "linkedin" || item.id === "reddit") && !active && <button disabled={!appReady} onClick={() => oauthConnect(item.id)}>{zh ? `连接 ${item.name}` : `Connect ${item.name}`}</button>}
       {item.id === "reddit" && active && <div className="connection-form inline"><input placeholder="r/SideProject" value={subreddit} onChange={(e) => setSubreddit(e.target.value)} /><button disabled={!subreddit || busy === "update_reddit"} onClick={() => void manage({ action: "update_reddit", subreddit })}>{zh ? "保存发布社区" : "Save subreddit"}</button></div>}
       {active && !["analytics"].includes(item.id) && <button className="disconnect" disabled={busy === item.id} onClick={() => void manage({ action: "disconnect", provider: item.id })}>{zh ? "断开连接" : "Disconnect"}</button>}

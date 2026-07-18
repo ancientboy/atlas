@@ -12,12 +12,13 @@ function parse<T>(value: unknown, fallback: T): T {
   try { return JSON.parse(value) as T; } catch { return fallback; }
 }
 
-export async function enqueueApprovedAssetPublication(db: D1Database, workspaceId: string, assetId: number) {
+export async function enqueueApprovedAssetPublication(db: D1Database, workspaceId: string, assetId: number, scheduledFor?: string | null) {
   const asset = await db.prepare("SELECT id, channel, status FROM campaign_assets WHERE id = ? AND workspace_id = ?").bind(assetId, workspaceId).first<{ id: number; channel: CampaignChannel; status: string }>();
   if (!asset || asset.status !== "approved" || !isPublishableChannel(asset.channel)) return { queued: false };
   const key = `${workspaceId}:${asset.id}:${asset.channel}`;
+  const schedule = scheduledFor ?? nowText();
   const inserted = await db.prepare("INSERT OR IGNORE INTO publication_jobs (workspace_id, asset_id, idempotency_key, status, scheduled_for, created_at, updated_at) VALUES (?, ?, ?, 'queued', ?, ?, ?)")
-    .bind(workspaceId, asset.id, key, nowText(), nowText(), nowText())
+    .bind(workspaceId, asset.id, key, schedule, nowText(), nowText())
     .run();
   return { queued: (inserted.meta?.changes ?? 0) > 0 };
 }
@@ -26,8 +27,8 @@ export async function runDuePublicationJobs(db: D1Database, env: Env, workspaceI
   const now = nowText();
   const scope = workspaceId ? " AND j.workspace_id = ?" : "";
   const jobs = workspaceId
-    ? await db.prepare(`SELECT j.id, j.workspace_id AS workspaceId, j.asset_id AS assetId, j.attempt_count AS attemptCount, j.max_attempts AS maxAttempts FROM publication_jobs j INNER JOIN workspaces w ON w.id = j.workspace_id WHERE w.autonomy_enabled != 0 AND j.status IN ('queued', 'retrying') AND (j.next_attempt_at IS NULL OR datetime(j.next_attempt_at) <= datetime(?))${scope} ORDER BY j.id LIMIT ?`).bind(now, workspaceId, limit).all<{ id: number; workspaceId: string; assetId: number; attemptCount: number; maxAttempts: number }>()
-    : await db.prepare("SELECT j.id, j.workspace_id AS workspaceId, j.asset_id AS assetId, j.attempt_count AS attemptCount, j.max_attempts AS maxAttempts FROM publication_jobs j INNER JOIN workspaces w ON w.id = j.workspace_id WHERE w.autonomy_enabled != 0 AND j.status IN ('queued', 'retrying') AND (j.next_attempt_at IS NULL OR datetime(j.next_attempt_at) <= datetime(?)) ORDER BY j.id LIMIT ?").bind(now, limit).all<{ id: number; workspaceId: string; assetId: number; attemptCount: number; maxAttempts: number }>();
+    ? await db.prepare(`SELECT j.id, j.workspace_id AS workspaceId, j.asset_id AS assetId, j.attempt_count AS attemptCount, j.max_attempts AS maxAttempts FROM publication_jobs j INNER JOIN workspaces w ON w.id = j.workspace_id WHERE w.autonomy_enabled != 0 AND j.status IN ('queued', 'retrying') AND (j.scheduled_for IS NULL OR datetime(j.scheduled_for) <= datetime(?)) AND (j.next_attempt_at IS NULL OR datetime(j.next_attempt_at) <= datetime(?))${scope} ORDER BY j.id LIMIT ?`).bind(now, now, workspaceId, limit).all<{ id: number; workspaceId: string; assetId: number; attemptCount: number; maxAttempts: number }>()
+    : await db.prepare("SELECT j.id, j.workspace_id AS workspaceId, j.asset_id AS assetId, j.attempt_count AS attemptCount, j.max_attempts AS maxAttempts FROM publication_jobs j INNER JOIN workspaces w ON w.id = j.workspace_id WHERE w.autonomy_enabled != 0 AND j.status IN ('queued', 'retrying') AND (j.scheduled_for IS NULL OR datetime(j.scheduled_for) <= datetime(?)) AND (j.next_attempt_at IS NULL OR datetime(j.next_attempt_at) <= datetime(?)) ORDER BY j.id LIMIT ?").bind(now, now, limit).all<{ id: number; workspaceId: string; assetId: number; attemptCount: number; maxAttempts: number }>();
   let published = 0;
   let retrying = 0;
   let failed = 0;
@@ -55,12 +56,17 @@ export async function runDuePublicationJobs(db: D1Database, env: Env, workspaceI
         db.prepare("UPDATE publication_jobs SET status = 'published', external_post_id = ?, published_url = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(receipt.externalPostId, publishedUrl, finished, job.id, job.workspaceId),
         db.prepare("UPDATE campaign_assets SET status = 'published', published_url = ?, published_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(publishedUrl, finished, finished, asset.id, job.workspaceId),
         db.prepare("UPDATE campaigns SET status = 'active', updated_at = ? WHERE id = (SELECT campaign_id FROM campaign_assets WHERE id = ? AND workspace_id = ?) AND workspace_id = ?").bind(finished, asset.id, job.workspaceId, job.workspaceId),
+        db.prepare("INSERT INTO agent_tool_calls (workspace_id, tool_name, status, input_json, output_json, started_at, finished_at) VALUES (?, 'ExternalPublicationExecutor', 'completed', ?, ?, ?, ?)").bind(job.workspaceId, JSON.stringify({ jobId: job.id, assetId: asset.id, channel: asset.channel }), JSON.stringify({ provider, externalPostId: receipt.externalPostId, publishedUrl }), now, finished),
       ]);
       published += 1;
     } catch (error) {
       const nextAttemptAt = new Date(Date.now() + Math.min(60, 2 ** (job.attemptCount + 1)) * 60_000).toISOString();
       const exhausted = job.attemptCount + 1 >= job.maxAttempts;
-      await db.prepare("UPDATE publication_jobs SET status = ?, next_attempt_at = ?, last_error = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(exhausted ? "failed" : "retrying", exhausted ? null : nextAttemptAt, safeClientError(error), nowText(), job.id, job.workspaceId).run();
+      const safeError = safeClientError(error);
+      await db.batch([
+        db.prepare("UPDATE publication_jobs SET status = ?, next_attempt_at = ?, last_error = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(exhausted ? "failed" : "retrying", exhausted ? null : nextAttemptAt, safeError, nowText(), job.id, job.workspaceId),
+        db.prepare("INSERT INTO agent_tool_calls (workspace_id, tool_name, status, input_json, error_code, started_at, finished_at) VALUES (?, 'ExternalPublicationExecutor', ?, ?, 'external_publish_failed', ?, ?)").bind(job.workspaceId, exhausted ? "failed" : "retrying", JSON.stringify({ jobId: job.id, assetId: job.assetId }), now, nowText()),
+      ]);
       if (exhausted) failed += 1;
       else retrying += 1;
     }

@@ -16,6 +16,7 @@ required_files=(
   "dist/.openai/drizzle/0010_posthog_growth_metrics.sql"
   "dist/.openai/drizzle/0011_autonomy_loop.sql"
   "dist/.openai/drizzle/0012_workspace_autonomy_control.sql"
+  "dist/.openai/drizzle/0013_company_runtime.sql"
 )
 
 for file in "${required_files[@]}"; do

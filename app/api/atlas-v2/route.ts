@@ -166,7 +166,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const { user, workspaceId } = await getWorkspace(request);
-    const body = await request.json() as { action?: string; id?: number; enabled?: boolean; opportunityId?: number; objective?: string; channels?: string[]; locale?: "zh" | "en"; title?: string; content?: string; cta?: string; publishedUrl?: string; runtime?: { mode?: "manual" | "copilot" | "autonomous" | "paused"; tickIntervalMinutes?: number; dailyActionLimit?: number; dailyLlmBudgetCents?: number; dailyExternalActionLimit?: number; quietHoursStart?: string | null; quietHoursEnd?: string | null; autoExecuteRiskLevel?: number }; metrics?: { impressions?: number; clicks?: number; conversions?: number }; productName?: string; product?: { name?: string; url?: string; description?: string; growthGoal?: string; locale?: "zh" | "en" } };
+    const body = await request.json() as { action?: string; id?: number; enabled?: boolean; opportunityId?: number; objective?: string; channels?: string[]; locale?: "zh" | "en"; title?: string; content?: string; cta?: string; publishedUrl?: string; scheduledFor?: string; runtime?: { mode?: "manual" | "copilot" | "autonomous" | "paused"; tickIntervalMinutes?: number; dailyActionLimit?: number; dailyLlmBudgetCents?: number; dailyExternalActionLimit?: number; quietHoursStart?: string | null; quietHoursEnd?: string | null; autoExecuteRiskLevel?: number }; metrics?: { impressions?: number; clicks?: number; conversions?: number }; productName?: string; product?: { name?: string; url?: string; description?: string; growthGoal?: string; locale?: "zh" | "en" } };
     const db = env.DB;
     if (body.action === "create_workspace") {
       const createdWorkspaceId = await createProductWorkspace(db, user, body.productName);
@@ -209,8 +209,10 @@ export async function POST(request: Request) {
     }
     if (body.action === "publish_campaign_asset") {
       if (!body.id) return Response.json({ error: "Campaign asset is required." }, { status: 400 });
-      await enqueueApprovedAssetPublication(db, workspaceId, body.id);
-      await runDuePublicationJobs(db, env as unknown as Record<string, string | undefined>, workspaceId, 1);
+      let scheduledFor: string | undefined;
+      if (body.scheduledFor) { const parsed = new Date(body.scheduledFor); if (Number.isNaN(parsed.getTime()) || parsed.getTime() < Date.now() - 60_000) return Response.json({ error: "Scheduled publish time must be in the future." }, { status: 400 }); scheduledFor = parsed.toISOString(); }
+      await enqueueApprovedAssetPublication(db, workspaceId, body.id, scheduledFor);
+      if (!scheduledFor) await runDuePublicationJobs(db, env as unknown as Record<string, string | undefined>, workspaceId, 1);
       return Response.json(await workspacePayload(workspaceId, user.id));
     }
     if (body.action === "mark_campaign_asset_published") {
@@ -219,7 +221,7 @@ export async function POST(request: Request) {
       try { publishedUrl = normalizePublishedUrl(body.publishedUrl); } catch { return Response.json({ error: "A valid HTTPS published URL is required for manual publishing." }, { status: 400 }); }
       const asset = await db.prepare("SELECT id FROM campaign_assets WHERE id = ? AND workspace_id = ? AND status = 'approved'").bind(body.id, workspaceId).first();
       if (!asset) return Response.json({ error: "Approve this campaign asset before marking it published." }, { status: 400 });
-      await db.batch([db.prepare("UPDATE campaign_assets SET status = 'published', published_url = ?, published_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(publishedUrl, nowText(), nowText(), body.id, workspaceId), db.prepare("UPDATE campaigns SET status = 'active', updated_at = ? WHERE id = (SELECT campaign_id FROM campaign_assets WHERE id = ? AND workspace_id = ?) AND workspace_id = ?").bind(nowText(), body.id, workspaceId, workspaceId)]);
+      await db.batch([db.prepare("UPDATE campaign_assets SET status = 'published', published_url = ?, published_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(publishedUrl, nowText(), nowText(), body.id, workspaceId), db.prepare("UPDATE campaigns SET status = 'active', updated_at = ? WHERE id = (SELECT campaign_id FROM campaign_assets WHERE id = ? AND workspace_id = ?) AND workspace_id = ?").bind(nowText(), body.id, workspaceId, workspaceId), db.prepare("INSERT INTO agent_tool_calls (workspace_id, tool_name, status, input_json, output_json, started_at, finished_at) VALUES (?, 'ManualPublicationReceipt', 'completed', ?, ?, ?, ?)").bind(workspaceId, JSON.stringify({ assetId: body.id }), JSON.stringify({ publishedUrl }), nowText(), nowText())]);
       return Response.json(await workspacePayload(workspaceId, user.id));
     }
     if (body.action === "update_campaign_asset") {

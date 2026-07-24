@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 
   try {
     const result = await runAgentRuntimeTick(env.DB, executeRuntimeJob);
-    const companyRuntime = await runDueCompanyRuntimeCycles(env.DB);
+    const companyRuntime = await runDueCompanyRuntimeCycles(env.DB, new Date(), 10, env as unknown as Record<string, string | undefined>);
     const publications = await runDuePublicationJobs(env.DB, env as unknown as Record<string, string | undefined>);
     return Response.json({ ok: true, companyRuntime, ...result, publications });
   } catch {

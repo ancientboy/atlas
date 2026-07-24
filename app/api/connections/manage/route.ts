@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
 import { getAuthenticatedUser, resolveCloudflareDoh, resolvePublicAddresses, validatePublicUrl } from "../../../../lib/atlas-runtime";
-import { encryptConnectionSecret } from "../../../../lib/connection-vault";
+import { decryptConnectionSecret, encryptConnectionSecret } from "../../../../lib/connection-vault";
 import { ensureGrowthOperatorSchedules } from "../../../../lib/agent-runtime";
 import { normalizePostHogConfig, syncPostHogConnection } from "../../../../lib/posthog-analytics";
+import { listSearchConsoleProperties, syncGoogleSearchConsoleConnection } from "../../../../lib/google-search-console";
 
 export const dynamic = "force-dynamic";
 async function workspace(request: Request, workspaceId: string) { const user = await getAuthenticatedUser(request.headers, env as Record<string, string | undefined>, env.DB); if (!user) throw new Response("Authentication required", { status: 401 }); const member = await env.DB.prepare("SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?").bind(workspaceId, user.id).first(); if (!member) throw new Response("Workspace access denied", { status: 403 }); return user; }
@@ -30,6 +31,26 @@ export async function POST(request: Request) {
     if (body.action === "sync_posthog") {
       const result = await syncPostHogConnection(env.DB, body.workspaceId, env.CONNECTION_ENCRYPTION_KEY);
       return Response.json({ ok: true, metrics: result });
+    }
+    if (body.action === "list_search_console_properties" || body.action === "select_search_console_property" || body.action === "sync_search_console") {
+      const connection = await env.DB.prepare("SELECT id, credential_ciphertext AS credentialCiphertext, metadata_json AS metadataJson FROM platform_connections WHERE workspace_id = ? AND provider = 'google_search_console' AND status = 'connected' ORDER BY updated_at DESC LIMIT 1").bind(body.workspaceId).first<{ id: number; credentialCiphertext: string; metadataJson: string }>();
+      if (!connection?.credentialCiphertext) return new Response("Google Search Console is not connected", { status: 400 });
+      const secret = await decryptConnectionSecret(connection.credentialCiphertext, env.CONNECTION_ENCRYPTION_KEY);
+      if (body.action === "list_search_console_properties") {
+        const result = await listSearchConsoleProperties(secret, env as Record<string, string | undefined>);
+        if (result.secret.accessToken !== secret.accessToken) await env.DB.prepare("UPDATE platform_connections SET credential_ciphertext = ?, expires_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(await encryptConnectionSecret(result.secret, env.CONNECTION_ENCRYPTION_KEY), result.secret.expiresAt ?? null, new Date().toISOString(), connection.id, body.workspaceId).run();
+        return Response.json({ ok: true, properties: result.properties });
+      }
+      if (body.action === "select_search_console_property") {
+        if (!body.siteUrl) return new Response("Search Console property is required", { status: 400 });
+        const result = await listSearchConsoleProperties(secret, env as Record<string, string |undefined>);
+        if (!result.properties.some((item) => item.siteUrl === body.siteUrl)) return new Response("Select one of your verified HTTPS Search Console properties", { status: 400 });
+        const oldMetadata = JSON.parse(connection.metadataJson || "{}") as Record<string, unknown>; const now = new Date().toISOString();
+        await env.DB.prepare("UPDATE platform_connections SET credential_ciphertext = ?, metadata_json = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").bind(await encryptConnectionSecret(result.secret, env.CONNECTION_ENCRYPTION_KEY), JSON.stringify({ ...oldMetadata, siteUrl: body.siteUrl, lastStatus: "ready", lastError: null }), now, connection.id, body.workspaceId).run();
+        return Response.json({ ok: true, siteUrl: body.siteUrl });
+      }
+      const result = await syncGoogleSearchConsoleConnection(env.DB, body.workspaceId, env.CONNECTION_ENCRYPTION_KEY, env as Record<string, string | undefined>);
+      return Response.json({ ok: true, insights: result });
     }
     if (body.action === "update_reddit" && body.subreddit) { await env.DB.prepare("UPDATE platform_connections SET metadata_json = ?, updated_at = ? WHERE workspace_id = ? AND provider = 'reddit' AND status = 'connected'").bind(JSON.stringify({ subreddit: body.subreddit.replace(/^r\//, "") }), new Date().toISOString(), body.workspaceId).run(); return Response.json({ ok: true }); }
     return new Response("Invalid connection action", { status: 400 });

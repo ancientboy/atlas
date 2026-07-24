@@ -186,7 +186,7 @@ export async function POST(request: Request) {
       return Response.json(await workspacePayload(workspaceId, user.id));
     }
     if (body.action === "run_company_runtime") {
-      const result = await runCompanyRuntimeCycle(env.DB, workspaceId, "manual");
+      const result = await runCompanyRuntimeCycle(env.DB, workspaceId, "manual", { env: env as unknown as Record<string, string | undefined> });
       return Response.json({ companyRuntime: result, ...(await workspacePayload(workspaceId, user.id)) });
     }
     if (body.action === "update_runtime_settings") {

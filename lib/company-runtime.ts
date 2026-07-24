@@ -1,5 +1,6 @@
 import { runWorkspaceAutonomyLoop } from "./autonomy-loop.ts";
 import { refreshCompanyIntelligence } from "./company-intelligence.ts";
+import { syncGoogleSearchConsoleConnection } from "./google-search-console.ts";
 
 type Db = D1Database;
 
@@ -84,7 +85,7 @@ async function ensureGoal(db: Db, workspaceId: string, product: { name?: string;
   return created?.id ?? null;
 }
 
-export async function runCompanyRuntimeCycle(db: Db, workspaceId: string, trigger: RuntimeTrigger, options: { now?: Date; idempotencyKey?: string } = {}) {
+export async function runCompanyRuntimeCycle(db: Db, workspaceId: string, trigger: RuntimeTrigger, options: { now?: Date; idempotencyKey?: string; env?: Record<string, string | undefined> } = {}) {
   const now = options.now ?? new Date(); const startedAt = now.toISOString();
   const workspace = await db.prepare("SELECT autonomy_enabled AS autonomyEnabled FROM workspaces WHERE id = ?").bind(workspaceId).first<{ autonomyEnabled: number }>();
   const settings = await ensureRuntimeSettings(db, workspaceId);
@@ -103,6 +104,9 @@ export async function runCompanyRuntimeCycle(db: Db, workspaceId: string, trigge
     if (usage.actionsCount >= settings.dailyActionLimit || usage.estimatedCostCents >= settings.dailyLlmBudgetCents) {
       await db.prepare("UPDATE runtime_cycles SET status = 'paused_budget', current_stage = 'budget', completed_at = ?, summary = ? WHERE id = ? AND workspace_id = ?").bind(nowText(), "Runtime paused because the daily resource limit was reached.", cycleId, workspaceId).run();
       return { skipped: true, reason: "daily_limit", cycleId };
+    }
+    if (options.env?.CONNECTION_ENCRYPTION_KEY) {
+      try { await syncGoogleSearchConsoleConnection(db, workspaceId, options.env.CONNECTION_ENCRYPTION_KEY, options.env, { now }); } catch { /* A disconnected or not-yet-selected property must not block internal runtime work. */ }
     }
     const intelligence = await refreshCompanyIntelligence(db, workspaceId, now);
     const state = await loadCompanyState(db, workspaceId);
@@ -135,9 +139,9 @@ export async function runCompanyRuntimeCycle(db: Db, workspaceId: string, trigge
   } finally { await releaseWorkspaceRuntimeLock(db, workspaceId, token); }
 }
 
-export async function runDueCompanyRuntimeCycles(db: Db, now = new Date(), limit = 10) {
+export async function runDueCompanyRuntimeCycles(db: Db, now = new Date(), limit = 10, env?: Record<string, string | undefined>) {
   const due = await db.prepare("SELECT s.workspace_id AS workspaceId FROM workspace_runtime_settings s INNER JOIN workspaces w ON w.id = s.workspace_id WHERE s.enabled != 0 AND s.mode NOT IN ('manual', 'paused') AND w.autonomy_enabled != 0 AND (s.next_tick_at IS NULL OR s.next_tick_at <= ?) ORDER BY s.next_tick_at LIMIT ?").bind(now.toISOString(), limit).all<{ workspaceId: string }>();
   const results = [];
-  for (const item of due.results) { try { results.push(await runCompanyRuntimeCycle(db, item.workspaceId, "scheduled", { now })); } catch { results.push({ skipped: true, reason: "failed" }); } }
+  for (const item of due.results) { try { results.push(await runCompanyRuntimeCycle(db, item.workspaceId, "scheduled", { now, env })); } catch { results.push({ skipped: true, reason: "failed" }); } }
   return { considered: due.results.length, results };
 }

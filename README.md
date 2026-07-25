@@ -45,7 +45,20 @@ The Growth Operator uses an evidence-ranked Decision Engine. Every daily run rea
 
 The Observation Engine runs as its own durable Agent job. It automatically watches the public product website, discovers a public GitHub repository from product context when available, stores source cursors and content fingerprints, deduplicates unchanged snapshots, records source health and retry state, and derives traceable Insights. A newly detected GitHub release can become a review-gated growth Opportunity; no external content is published by the observer. PostHog can be connected per Workspace with an encrypted Query Read personal API key; Atlas synchronizes bounded daily visitor, signup, and paid-event aggregates every six hours and exposes source freshness without storing raw PostHog events or person data.
 
-The server-only `POST /api/runtime/tick` endpoint advances due jobs. Call it from a trusted scheduler with `Authorization: Bearer <ATLAS_RUNTIME_SECRET>`; the secret must contain at least 32 random characters. Sites owns the application deployment and D1 binding, while the scheduler only invokes this HTTPS endpoint. Opening the workspace no longer runs the daily Agent loop.
+The server-only `POST /api/runtime/tick` endpoint advances due jobs, company cycles, experiment evaluations, learning updates, and approved publication jobs. The included `Atlas Company Runtime` GitHub Actions workflow invokes it every 30 minutes with `Authorization: Bearer <ATLAS_RUNTIME_SECRET>`; the secret must contain at least 32 random characters. Configure repository secrets `ATLAS_RUNTIME_URL` and `ATLAS_RUNTIME_SECRET`, and set the same runtime secret in Sites. The workflow exits safely without making a request until both secrets exist. Sites owns the application deployment and D1 binding, while the scheduler only invokes this HTTPS endpoint. Opening the workspace no longer runs the daily Agent loop.
+
+## Company Brain operating loop
+
+Atlas now treats work as measurable experiments:
+
+- a Decision Journal entry creates a linked Growth Experiment;
+- a campaign is attributed to that experiment;
+- the runtime captures a metric baseline and waits for its evaluation window;
+- the result is classified as `success`, `failed`, or `inconclusive`;
+- strategy performance and a traceable lesson are updated;
+- repeated failures suppress the strategy for 30 days and reduce its future Planner score.
+
+The Company Brain also maintains unified Growth, Product, and Sales Intelligence snapshots. These are internal Atlas functions sharing one company memory and policy engine, not separate chatbots or unrestricted agents. Product and Sales currently produce evidence-backed internal opportunities; person-directed outreach and every external publish remain approval-gated.
 
 ## Account sign-in
 
@@ -102,12 +115,12 @@ npm test
 
 ## Intentional prototype boundaries
 
-This V2 slice includes workspace isolation, onboarding, and a reusable Website Reader used by Product Analysis and recurring observations. The reader validates the target with trusted DoH/IP checks, attempts a bounded direct HTML fetch, then falls back to Jina Reader's rendered Markdown extraction for blocked or JavaScript-heavy public pages. If both methods fail, onboarding can still use user-provided product context. Private, reserved, metadata, credential-bearing, and non-web targets remain blocked before retrieval. The Observation Engine currently supports public product websites, automatically discovered public GitHub repositories, and first-party Atlas Tracking signals; authenticated analytics and market/community connectors remain incomplete. Atlas does not alter a live landing page, and the repository does not provision an external cron service automatically. Official publishing adapters and encrypted per-Workspace connections exist, while Level 3 actions remain manual by design.
+This V2 slice includes workspace isolation, onboarding, and a reusable Website Reader used by Product Analysis and recurring observations. The reader validates the target with trusted DoH/IP checks, attempts a bounded direct HTML fetch, then falls back to Jina Reader's rendered Markdown extraction for blocked or JavaScript-heavy public pages. If both methods fail, onboarding can still use user-provided product context. Private, reserved, metadata, credential-bearing, and non-web targets remain blocked before retrieval. The Observation Engine currently supports public product websites, automatically discovered public GitHub repositories, GSC, PostHog, and first-party Atlas Tracking signals; additional authenticated market/community connectors remain incomplete. Atlas does not alter a live landing page. The repository includes the trusted scheduler workflow, but production scheduling remains dormant until its two secrets are configured. Official publishing adapters and encrypted per-Workspace connections exist, while Level 3 actions remain blocked by design.
 
 ## Recommended next implementation steps
 
-1. Configure a trusted scheduler to call `/api/runtime/tick` and monitor runtime health.
-2. Add GA4 or Search Console as the next authenticated measurement connector.
-3. Add policy-compliant Hacker News, Product Hunt, and Reddit observation adapters.
-4. Add LLM-assisted Insight enrichment on top of the deterministic evidence and safety layer.
-5. Link Experiment outcomes and verified lessons back into Memory and future decisions.
+1. Configure the two runtime scheduler secrets after merging and deploying.
+2. Add policy-compliant Hacker News, Product Hunt, and Reddit observation adapters.
+3. Add CRM or qualified-lead evidence as the first authenticated Sales Intelligence connector.
+4. Add product feedback and activation events as deeper Product Intelligence evidence.
+5. Expand curated Knowledge Packs only when their sources, versions, and evaluation criteria are governed.

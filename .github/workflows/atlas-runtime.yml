@@ -1,0 +1,39 @@
+name: Atlas Company Runtime
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: atlas-company-runtime
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Invoke trusted runtime endpoint
+        env:
+          ATLAS_RUNTIME_URL: ${{ secrets.ATLAS_RUNTIME_URL }}
+          ATLAS_RUNTIME_SECRET: ${{ secrets.ATLAS_RUNTIME_SECRET }}
+        run: |
+          if [ -z "$ATLAS_RUNTIME_URL" ] || [ -z "$ATLAS_RUNTIME_SECRET" ]; then
+            echo "Atlas runtime secrets are not configured; scheduled tick skipped." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          response_file="$(mktemp)"
+          status="$(curl --silent --show-error --location \
+            --connect-timeout 10 --max-time 90 \
+            --output "$response_file" --write-out "%{http_code}" \
+            --request POST \
+            --header "Authorization: Bearer $ATLAS_RUNTIME_SECRET" \
+            --header "Content-Type: application/json" \
+            "$ATLAS_RUNTIME_URL/api/runtime/tick")"
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "Runtime tick returned HTTP $status." >&2
+            exit 1
+          fi
+          node -e 'const fs=require("fs"); const body=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(body.ok!==true) process.exit(1)' "$response_file"
+          echo "Atlas runtime tick completed successfully." >> "$GITHUB_STEP_SUMMARY"

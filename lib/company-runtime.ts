@@ -1,7 +1,7 @@
 import { runWorkspaceAutonomyLoop } from "./autonomy-loop.ts";
 import { refreshCompanyIntelligence } from "./company-intelligence.ts";
 import { syncGoogleSearchConsoleConnection } from "./google-search-console.ts";
-import { assembleCompanyContext, ensureCompanyBrain, scoreCompanyDecision } from "./company-brain.ts";
+import { assembleCompanyContext, ensureCompanyBrain, explainAlternative, scoreCompanyDecision } from "./company-brain.ts";
 
 type Db = D1Database;
 
@@ -115,17 +115,32 @@ export async function runCompanyRuntimeCycle(db: Db, workspaceId: string, trigge
     const goalId = await ensureGoal(db, workspaceId, state.product as { name?: string; growthGoal?: string | null } | null);
     await db.prepare("UPDATE runtime_cycles SET current_stage = 'prioritize', observations_count = ? WHERE id = ? AND workspace_id = ?").bind(state.observations.length, cycleId, workspaceId).run();
     const autonomy = await runWorkspaceAutonomyLoop(db, workspaceId);
-    const candidates = state.opportunities as Array<{ id: number; title: string; summary: string; suggestedAction: string; confidence: number }>;
+    const candidates = state.opportunities as Array<{ id: number; title: string; summary: string; suggestedAction: string; confidence: number; signal: string; source?: string }>;
     const context = await assembleCompanyContext(db, workspaceId, `${state.goal?.title ?? ""} ${candidates.map((item) => `${item.title} ${item.suggestedAction}`).join(" ")}`);
-    const ranked = candidates.map((candidate) => ({ candidate, decision: scoreCompanyDecision({ opportunity: candidate, goal: state.goal as { title?: string | null } | null, context }) })).sort((a, b) => b.decision.score - a.decision.score || b.candidate.confidence - a.candidate.confidence);
+    const ranked = candidates.map((candidate) => ({ candidate, decision: scoreCompanyDecision({ opportunity: candidate, goal: state.goal as { title?: string | null; targetMetric?: string | null } | null, context }) })).sort((a, b) => b.decision.score - a.decision.score || b.candidate.confidence - a.candidate.confidence);
     const selection = ranked[0];
     const opportunity = selection?.candidate;
     let planId: number | null = null; let taskId: number | null = null; let approvalCount = 0; let executed = 0;
     if (opportunity && state.agentId) {
-      const plan = await db.prepare("INSERT OR IGNORE INTO company_plans (workspace_id, goal_id, opportunity_id, title, hypothesis, strategy, expected_impact, confidence, risk_level, estimated_cost_cents, status, created_by_agent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'planned', ?) RETURNING id").bind(workspaceId, goalId, opportunity.id, `Validate: ${opportunity.title}`.slice(0, 200), `If Atlas executes ${opportunity.suggestedAction}, it can validate this opportunity with bounded internal work.`, opportunity.suggestedAction, "A measurable next growth signal and a traceable plan.", selection.decision.score, state.agentId).first<{ id: number }>();
+      const plan = await db.prepare("INSERT OR IGNORE INTO company_plans (workspace_id, goal_id, opportunity_id, title, hypothesis, strategy, expected_impact, confidence, risk_level, estimated_cost_cents, status, created_by_agent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?) RETURNING id").bind(workspaceId, goalId, opportunity.id, `Validate: ${opportunity.title}`.slice(0, 200), `If Atlas executes ${opportunity.suggestedAction}, it can validate this opportunity with bounded work.`, opportunity.suggestedAction, "A measurable next growth signal and a traceable plan.", selection.decision.score, selection.decision.riskLevel, selection.decision.estimatedCost === "high" ? 5000 : selection.decision.estimatedCost === "medium" ? 500 : 0, state.agentId).first<{ id: number }>();
       planId = plan?.id ?? (await db.prepare("SELECT id FROM company_plans WHERE workspace_id = ? AND opportunity_id = ? ORDER BY id DESC LIMIT 1").bind(workspaceId, opportunity.id).first<{ id: number }>())?.id ?? null;
-      const journal = await db.prepare("INSERT INTO decision_journal (workspace_id, cycle_id, goal_id, opportunity_id, decision_type, title, rationale, alternatives_json, evidence_json, context_json, score, confidence, status) VALUES (?, ?, ?, ?, 'opportunity_selection', ?, ?, ?, ?, ?, ?, ?, 'selected') RETURNING id").bind(workspaceId, cycleId, goalId, opportunity.id, `Prioritize: ${opportunity.title}`.slice(0, 200), selection.decision.rationale, JSON.stringify(ranked.slice(1, 4).map((item) => ({ title: item.candidate.title, score: item.decision.score }))), JSON.stringify([opportunity.summary, ...context.knowledge.map((item) => item.title).slice(0, 3)]), JSON.stringify({ facts: context.facts, knowledge: context.knowledge.map((item) => ({ packKey: item.packKey, title: item.title })), lessons: context.lessons }), selection.decision.score, opportunity.confidence).first<{ id: number }>();
-      await db.prepare("INSERT INTO growth_experiments (workspace_id, plan_id, decision_id, name, hypothesis, strategy_key, primary_metric, evaluation_starts_at, evaluation_ends_at, status) SELECT ?, ?, ?, ?, ?, ?, 'signups', ?, ?, 'planned' WHERE NOT EXISTS (SELECT 1 FROM growth_experiments WHERE workspace_id = ? AND plan_id = ?)").bind(workspaceId, planId, journal?.id ?? null, `Validate: ${opportunity.title}`.slice(0, 200), `If ${opportunity.suggestedAction}, the active goal will receive a measurable growth signal.`, opportunity.signal.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "growth", startedAt, new Date(now.getTime() + 14 * 86400000).toISOString(), workspaceId, planId).run();
+      const alternatives = ranked.slice(1, 4).map((item) => ({
+        opportunityId: item.candidate.id,
+        title: item.candidate.title,
+        score: item.decision.score,
+        strategyKey: item.decision.strategyKey,
+        channel: item.decision.channel,
+        breakdown: item.decision.breakdown,
+        reason: explainAlternative(selection.decision, item.decision),
+      }));
+      const journal = await db.prepare("INSERT INTO decision_journal (workspace_id, cycle_id, goal_id, opportunity_id, decision_type, title, rationale, alternatives_json, evidence_json, context_json, score, confidence, status) VALUES (?, ?, ?, ?, 'opportunity_selection', ?, ?, ?, ?, ?, ?, ?, 'selected') RETURNING id").bind(
+        workspaceId, cycleId, goalId, opportunity.id, `Prioritize: ${opportunity.title}`.slice(0, 200), selection.decision.rationale,
+        JSON.stringify(alternatives),
+        JSON.stringify([opportunity.summary, ...context.knowledge.map((item) => item.title).slice(0, 3)]),
+        JSON.stringify({ version: 2, strategyKey: selection.decision.strategyKey, channel: selection.decision.channel, riskLevel: selection.decision.riskLevel, estimatedCost: selection.decision.estimatedCost, breakdown: selection.decision.breakdown, facts: context.facts, knowledge: context.knowledge.map((item) => ({ packKey: item.packKey, title: item.title })), lessons: context.lessons }),
+        selection.decision.score, opportunity.confidence,
+      ).first<{ id: number }>();
+      await db.prepare("INSERT INTO growth_experiments (workspace_id, plan_id, decision_id, name, hypothesis, strategy_key, channel, primary_metric, evaluation_starts_at, evaluation_ends_at, status) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned' WHERE NOT EXISTS (SELECT 1 FROM growth_experiments WHERE workspace_id = ? AND plan_id = ?)").bind(workspaceId, planId, journal?.id ?? null, `Validate: ${opportunity.title}`.slice(0, 200), `If ${opportunity.suggestedAction}, the active goal will receive a measurable growth signal.`, selection.decision.strategyKey, selection.decision.channel, (state.goal as { targetMetric?: string | null } | null)?.targetMetric || "signups", startedAt, new Date(now.getTime() + 14 * 86400000).toISOString(), workspaceId, planId).run();
       const policy = evaluateActionPolicy({ mode: settings.mode, riskLevel: 1, autoExecuteRiskLevel: settings.autoExecuteRiskLevel, actionsUsed: usage.actionsCount, externalActionsUsed: usage.externalActionsCount, dailyActionLimit: settings.dailyActionLimit, dailyExternalActionLimit: settings.dailyExternalActionLimit, estimatedCostCents: 0, dailyCostCents: usage.estimatedCostCents, dailyLlmBudgetCents: settings.dailyLlmBudgetCents });
       const task = await db.prepare("INSERT INTO agent_tasks (workspace_id, agent_id, title, description, task_type, priority, risk_level, status, requires_approval, expected_outcome, estimated_minutes, evidence, created_at) SELECT ?, ?, ?, ?, 'company_runtime_plan', 1, 1, ?, ?, ?, 20, ?, ? WHERE NOT EXISTS (SELECT 1 FROM agent_tasks WHERE workspace_id = ? AND task_type = 'company_runtime_plan' AND title = ? AND substr(created_at, 1, 10) = ? ) RETURNING id").bind(workspaceId, state.agentId, opportunity.suggestedAction.slice(0, 200), opportunity.summary, policy.decision === "execute" ? "completed" : "waiting_approval", policy.decision === "execute" ? 0 : 1, "Create a traceable experiment from this opportunity.", JSON.stringify([opportunity.title, `Plan #${planId ?? "pending"}`]), startedAt, workspaceId, opportunity.suggestedAction.slice(0, 200), dayKey(now)).first<{ id: number }>();
       taskId = task?.id ?? null;

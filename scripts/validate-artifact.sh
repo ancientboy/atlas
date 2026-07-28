@@ -21,6 +21,7 @@ required_files=(
   "dist/.openai/drizzle/0015_google_search_console_insights.sql"
   "dist/.openai/drizzle/0016_company_brain.sql"
   "dist/.openai/drizzle/0017_company_operating_loop.sql"
+  "dist/.openai/drizzle/0018_trusted_company_operator.sql"
 )
 
 for file in "${required_files[@]}"; do

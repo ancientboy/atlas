@@ -4,6 +4,7 @@ import { syncGoogleSearchConsoleConnection } from "./google-search-console.ts";
 import { assembleCompanyContext, ensureCompanyBrain, explainAlternative, scoreCompanyDecision } from "./company-brain.ts";
 import { advanceWorkspaceExperiments } from "./experiment-loop.ts";
 import { recordRuntimeHeartbeat, refreshCompanyFunctions } from "./company-functions.ts";
+import { getActionTrustPolicy, trustLevelDecision, type TrustLevel } from "./company-trust.ts";
 
 type Db = D1Database;
 
@@ -19,14 +20,18 @@ export type ActionPolicy = { decision: "execute" | "require_approval" | "block";
 const nowText = () => new Date().toISOString();
 const dayKey = (now: Date) => now.toISOString().slice(0, 10);
 
-export function evaluateActionPolicy(input: { mode: RuntimeMode; riskLevel: number; autoExecuteRiskLevel: number; actionsUsed: number; externalActionsUsed: number; dailyActionLimit: number; dailyExternalActionLimit: number; estimatedCostCents: number; dailyCostCents: number; dailyLlmBudgetCents: number; connectionReady?: boolean }) : ActionPolicy {
+export function evaluateActionPolicy(input: { mode: RuntimeMode; riskLevel: number; autoExecuteRiskLevel: number; actionsUsed: number; externalActionsUsed: number; dailyActionLimit: number; dailyExternalActionLimit: number; estimatedCostCents: number; dailyCostCents: number; dailyLlmBudgetCents: number; connectionReady?: boolean; trustLevel?: TrustLevel; trustMaxRiskLevel?: number }) : ActionPolicy {
   const riskLevel = Math.max(0, Math.min(3, input.riskLevel)) as 0 | 1 | 2 | 3;
   if (riskLevel === 3) return { decision: "block", reason: "Level 3 actions always require a founder.", riskLevel, policyCode: "level_3_manual" };
   if (input.actionsUsed >= input.dailyActionLimit) return { decision: "block", reason: "Daily action limit reached.", riskLevel, policyCode: "daily_action_limit" };
   if (input.dailyCostCents + input.estimatedCostCents > input.dailyLlmBudgetCents) return { decision: "block", reason: "Daily runtime budget reached.", riskLevel, policyCode: "daily_budget_limit" };
   if (riskLevel >= 2 && !input.connectionReady) return { decision: "require_approval", reason: "A connected external account is required before execution.", riskLevel, policyCode: "connection_required" };
   if (riskLevel >= 2 && input.externalActionsUsed >= input.dailyExternalActionLimit) return { decision: "require_approval", reason: "Daily external action limit reached.", riskLevel, policyCode: "daily_external_limit" };
-  if (riskLevel >= 2) return { decision: "require_approval", reason: "External actions remain founder-approved in Phase 1.", riskLevel, policyCode: "external_approval" };
+  if (input.trustLevel) {
+    const trusted = trustLevelDecision(input.trustLevel, riskLevel, input.trustMaxRiskLevel ?? 1);
+    if (trusted.decision !== "execute") return { ...trusted, reason: `Action trust is ${input.trustLevel}; Founder control remains active.`, riskLevel };
+  }
+  if (riskLevel >= 2) return { decision: "require_approval", reason: "External actions remain founder-approved.", riskLevel, policyCode: "external_approval" };
   if (input.mode === "manual") return { decision: "require_approval", reason: "Manual mode does not auto-execute new work.", riskLevel, policyCode: "manual_mode" };
   if (riskLevel > input.autoExecuteRiskLevel) return { decision: "require_approval", reason: "This action exceeds the configured automatic risk level.", riskLevel, policyCode: "risk_limit" };
   return { decision: "execute", reason: "Internal, reversible action is within policy.", riskLevel, policyCode: "internal_auto" };
@@ -148,7 +153,8 @@ export async function runCompanyRuntimeCycle(db: Db, workspaceId: string, trigge
       await db.prepare("INSERT INTO growth_experiments (workspace_id, plan_id, decision_id, goal_id, name, hypothesis, strategy_key, channel, primary_metric, evaluation_starts_at, evaluation_ends_at, status) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned' WHERE NOT EXISTS (SELECT 1 FROM growth_experiments WHERE workspace_id = ? AND plan_id = ?)").bind(workspaceId, planId, journal?.id ?? null, goalId, `Validate: ${opportunity.title}`.slice(0, 200), `If ${opportunity.suggestedAction}, the active goal will receive a measurable growth signal.`, selection.decision.strategyKey, selection.decision.channel, (state.goal as { targetMetric?: string | null } | null)?.targetMetric || "signups", startedAt, new Date(now.getTime() + 14 * 86400000).toISOString(), workspaceId, planId).run();
       await db.prepare("UPDATE campaigns SET experiment_id = (SELECT id FROM growth_experiments WHERE workspace_id = ? AND plan_id = ? ORDER BY id DESC LIMIT 1), updated_at = ? WHERE workspace_id = ? AND opportunity_id = ? AND experiment_id IS NULL").bind(workspaceId, planId, startedAt, workspaceId, opportunity.id).run();
       const connectionReady = selection.decision.riskLevel === 1 || state.connections.some((item) => String((item as { provider?: string }).provider ?? "").includes(selection.decision.channel));
-      const policy = evaluateActionPolicy({ mode: settings.mode, riskLevel: selection.decision.riskLevel, autoExecuteRiskLevel: settings.autoExecuteRiskLevel, actionsUsed: usage.actionsCount, externalActionsUsed: usage.externalActionsCount, dailyActionLimit: settings.dailyActionLimit, dailyExternalActionLimit: settings.dailyExternalActionLimit, estimatedCostCents: 0, dailyCostCents: usage.estimatedCostCents, dailyLlmBudgetCents: settings.dailyLlmBudgetCents, connectionReady });
+      const trust = await getActionTrustPolicy(db, workspaceId, "create_company_action");
+      const policy = evaluateActionPolicy({ mode: settings.mode, riskLevel: selection.decision.riskLevel, autoExecuteRiskLevel: settings.autoExecuteRiskLevel, actionsUsed: usage.actionsCount, externalActionsUsed: usage.externalActionsCount, dailyActionLimit: settings.dailyActionLimit, dailyExternalActionLimit: settings.dailyExternalActionLimit, estimatedCostCents: 0, dailyCostCents: usage.estimatedCostCents, dailyLlmBudgetCents: settings.dailyLlmBudgetCents, connectionReady, trustLevel: trust.trustLevel, trustMaxRiskLevel: trust.maxRiskLevel });
       const taskStatus = policy.decision === "execute" ? "completed" : policy.decision === "require_approval" ? "waiting_approval" : "deferred";
       const task = await db.prepare("INSERT INTO agent_tasks (workspace_id, agent_id, title, description, task_type, priority, risk_level, status, requires_approval, expected_outcome, estimated_minutes, evidence, created_at) SELECT ?, ?, ?, ?, 'company_runtime_plan', 1, ?, ?, ?, ?, 20, ?, ? WHERE NOT EXISTS (SELECT 1 FROM agent_tasks WHERE workspace_id = ? AND task_type = 'company_runtime_plan' AND title = ? AND substr(created_at, 1, 10) = ? ) RETURNING id").bind(workspaceId, state.agentId, opportunity.suggestedAction.slice(0, 200), opportunity.summary, selection.decision.riskLevel, taskStatus, policy.decision === "require_approval" ? 1 : 0, "Create a traceable experiment from this opportunity.", JSON.stringify([opportunity.title, `Plan #${planId ?? "pending"}`, policy.reason]), startedAt, workspaceId, opportunity.suggestedAction.slice(0, 200), dayKey(now)).first<{ id: number }>();
       taskId = task?.id ?? null;

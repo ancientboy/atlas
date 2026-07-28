@@ -7,6 +7,7 @@ import { runWorkspaceAutonomyLoop } from "../../../../lib/autonomy-loop";
 import { runDuePublicationJobs } from "../../../../lib/publication-runtime";
 import { runDueCompanyRuntimeCycles } from "../../../../lib/company-runtime";
 import { runDueExperimentEvaluations } from "../../../../lib/experiment-loop";
+import { runDueCompanyRoutines } from "../../../../lib/company-routines";
 
 export const dynamic = "force-dynamic";
 
@@ -36,8 +37,9 @@ export async function POST(request: Request) {
     const result = await runAgentRuntimeTick(env.DB, executeRuntimeJob);
     const companyRuntime = await runDueCompanyRuntimeCycles(env.DB, new Date(), 10, env as unknown as Record<string, string | undefined>);
     const experiments = await runDueExperimentEvaluations(env.DB);
+    const routines = await runDueCompanyRoutines(env.DB);
     const publications = await runDuePublicationJobs(env.DB, env as unknown as Record<string, string | undefined>);
-    return Response.json({ ok: true, companyRuntime, experiments, ...result, publications });
+    return Response.json({ ok: true, companyRuntime, experiments, routines, ...result, publications });
   } catch {
     return Response.json({ error: "Runtime tick failed safely." }, { status: 500 });
   }

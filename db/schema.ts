@@ -375,6 +375,22 @@ export const strategyPerformance = sqliteTable("strategy_performance", { id: int
 export const companyFunctionSnapshots = sqliteTable("company_function_snapshots", { id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), functionKey: text("function_key").notNull(), status: text("status").notNull().default("observing"), confidence: integer("confidence").notNull().default(50), summary: text("summary").notNull(), nextAction: text("next_action").notNull(), evidenceJson: text("evidence_json").notNull().default("[]"), metricName: text("metric_name"), metricValue: real("metric_value"), observedAt: text("observed_at").notNull(), ...timestamps });
 export const runtimeHeartbeats = sqliteTable("runtime_heartbeats", { workspaceId: text("workspace_id").primaryKey(), source: text("source").notNull(), status: text("status").notNull(), startedAt: text("started_at").notNull(), completedAt: text("completed_at"), nextExpectedAt: text("next_expected_at"), detailsJson: text("details_json").notNull().default("{}"), updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`) });
 
+export const companyRoutines = sqliteTable("company_routines", {
+  id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), routineKey: text("routine_key").notNull(), name: text("name").notNull(), instruction: text("instruction").notNull(), playbookKey: text("playbook_key").notNull(), triggerType: text("trigger_type").notNull().default("schedule"), cadenceMinutes: integer("cadence_minutes").notNull().default(1440), eventType: text("event_type"), trustLevel: text("trust_level").notNull().default("recommend"), status: text("status").notNull().default("active"), nextRunAt: text("next_run_at"), lastRunAt: text("last_run_at"), lastStatus: text("last_status"), lastSummary: text("last_summary"), ...timestamps,
+});
+export const companyRoutineRuns = sqliteTable("company_routine_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), routineId: integer("routine_id").notNull(), triggerType: text("trigger_type").notNull(), status: text("status").notNull(), inputJson: text("input_json").notNull().default("{}"), outputJson: text("output_json").notNull().default("{}"), summary: text("summary"), startedAt: text("started_at").notNull(), completedAt: text("completed_at"), idempotencyKey: text("idempotency_key").notNull(), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export const actionTrustPolicies = sqliteTable("action_trust_policies", {
+  id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), actionType: text("action_type").notNull(), trustLevel: text("trust_level").notNull().default("recommend"), maxRiskLevel: integer("max_risk_level").notNull().default(1), reason: text("reason"), ...timestamps,
+});
+export const founderFeedback = sqliteTable("founder_feedback", {
+  id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), targetType: text("target_type").notNull(), targetId: text("target_id"), feedbackType: text("feedback_type").notNull(), reason: text("reason"), originalJson: text("original_json").notNull().default("{}"), correctedJson: text("corrected_json").notNull().default("{}"), createdBy: text("created_by").notNull(), createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+export const companyBehaviorRules = sqliteTable("company_behavior_rules", {
+  id: integer("id").primaryKey({ autoIncrement: true }), workspaceId: text("workspace_id").notNull(), category: text("category").notNull(), ruleText: text("rule_text").notNull(), sourceFeedbackId: integer("source_feedback_id"), confidence: integer("confidence").notNull().default(80), status: text("status").notNull().default("active"), ...timestamps,
+});
+
 export const connections = sqliteTable("connections", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   workspaceId: text("workspace_id").notNull(),

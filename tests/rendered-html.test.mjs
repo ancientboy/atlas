@@ -13,7 +13,7 @@ test("Atlas product shell and durable data model are present", async () => {
   assert.match(layout, /Project Atlas/);
   assert.match(layout, /Growth Operator/);
   assert.match(dashboard, /审批队列/);
-  assert.match(dashboard, /Atlas 已经开始工作/);
+  assert.match(dashboard, /这是 Atlas 今天的交接/);
   assert.match(dashboard, /ApprovalDrawer/);
   assert.match(dashboard, /\/api\/atlas-v2/);
   assert.match(dashboard, /PostHog/);

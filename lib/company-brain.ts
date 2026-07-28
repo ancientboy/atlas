@@ -7,6 +7,7 @@ export type CompanyBrainContext = {
   decisions: Array<{ title: string; rationale: string; score: number; confidence: number }>;
   experiments: Array<{ strategyKey: string; channel: string | null; status: string; outcome: string | null; confidence: number | null }>;
   strategyPerformance?: Array<{ strategyKey: string; weight: number; suppressedUntil: string | null; consecutiveFailures: number; successCount: number; failureCount: number }>;
+  rules?: Array<{ category: string; ruleText: string; confidence: number }>;
 };
 
 const parse = <T>(value: string | null | undefined, fallback: T): T => { try { return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } };
@@ -100,17 +101,18 @@ export async function ensureCompanyBrain(db: Db, workspaceId: string, now = new 
 
 export async function assembleCompanyContext(db: Db, workspaceId: string, query: string, limit = 8): Promise<CompanyBrainContext> {
   const bounded = Math.max(1, Math.min(limit, 12));
-  const [facts, entries, lessons, decisions, experiments, strategyPerformance] = await Promise.all([
+  const [facts, entries, lessons, decisions, experiments, strategyPerformance, rules] = await Promise.all([
     db.prepare("SELECT fact_type AS factType, subject, value_json AS valueJson, confidence, source FROM company_facts WHERE workspace_id = ? AND status = 'active' ORDER BY confidence DESC, last_verified_at DESC LIMIT ?").bind(workspaceId, bounded).all<{ factType: string; subject: string; valueJson: string; confidence: number; source: string }>(),
     db.prepare("SELECT p.pack_key AS packKey, e.title, e.content, e.confidence, e.tags_json AS tagsJson FROM knowledge_entries e INNER JOIN knowledge_packs p ON p.id = e.pack_id WHERE e.status = 'active' AND p.status = 'active' AND (p.scope = 'atlas' OR p.workspace_id = ?) ORDER BY e.confidence DESC, e.updated_at DESC LIMIT 30").bind(workspaceId).all<{ packKey: string; title: string; content: string; confidence: number; tagsJson: string }>(),
     db.prepare("SELECT strategy_key AS strategyKey, lesson_type AS lessonType, statement, confidence FROM strategy_lessons WHERE workspace_id = ? AND status = 'active' ORDER BY confidence DESC, updated_at DESC LIMIT ?").bind(workspaceId, bounded).all<{ strategyKey: string; lessonType: string; statement: string; confidence: number }>(),
     db.prepare("SELECT title, rationale, score, confidence FROM decision_journal WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ?").bind(workspaceId, bounded).all<{ title: string; rationale: string; score: number; confidence: number }>(),
     db.prepare("SELECT e.strategy_key AS strategyKey, e.channel, e.status, r.outcome, r.confidence FROM growth_experiments e LEFT JOIN experiment_results r ON r.id = (SELECT latest.id FROM experiment_results latest WHERE latest.workspace_id = e.workspace_id AND latest.experiment_id = e.id ORDER BY latest.measured_at DESC, latest.id DESC LIMIT 1) WHERE e.workspace_id = ? ORDER BY e.updated_at DESC LIMIT 24").bind(workspaceId).all<{ strategyKey: string; channel: string | null; status: string; outcome: string | null; confidence: number | null }>(),
     db.prepare("SELECT strategy_key AS strategyKey, weight, suppressed_until AS suppressedUntil, consecutive_failures AS consecutiveFailures, success_count AS successCount, failure_count AS failureCount FROM strategy_performance WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 24").bind(workspaceId).all<{ strategyKey: string; weight: number; suppressedUntil: string | null; consecutiveFailures: number; successCount: number; failureCount: number }>(),
+    db.prepare("SELECT category, rule_text AS ruleText, confidence FROM company_behavior_rules WHERE workspace_id = ? AND status = 'active' ORDER BY confidence DESC, updated_at DESC LIMIT ?").bind(workspaceId, bounded).all<{ category: string; ruleText: string; confidence: number }>(),
   ]);
   const queryTokens = new Set(tokens(query));
   const knowledge = entries.results.map((entry) => ({ ...entry, tags: parse<string[]>(entry.tagsJson, []) })).map((entry) => ({ entry, relevance: [...tokens(`${entry.packKey} ${entry.title} ${entry.content}`), ...entry.tags].reduce((total, token) => total + (queryTokens.has(token) ? 1 : 0), 0) })).sort((a, b) => b.relevance - a.relevance || b.entry.confidence - a.entry.confidence).slice(0, bounded).map(({ entry }) => ({ packKey: entry.packKey, title: entry.title, content: entry.content, confidence: entry.confidence }));
-  return { facts: facts.results.map((fact) => ({ factType: fact.factType, subject: fact.subject, value: parse(fact.valueJson, fact.valueJson), confidence: fact.confidence, source: fact.source })), knowledge, lessons: lessons.results, decisions: decisions.results, experiments: experiments.results, strategyPerformance: strategyPerformance.results };
+  return { facts: facts.results.map((fact) => ({ factType: fact.factType, subject: fact.subject, value: parse(fact.valueJson, fact.valueJson), confidence: fact.confidence, source: fact.source })), knowledge, lessons: lessons.results, decisions: decisions.results, experiments: experiments.results, strategyPerformance: strategyPerformance.results, rules: rules.results };
 }
 
 export function scoreCompanyDecision(input: {
@@ -129,6 +131,8 @@ export function scoreCompanyDecision(input: {
   const failures = history.filter((experiment) => experiment.outcome === "failed" || experiment.outcome === "negative").length;
   const activeInChannel = history.filter((experiment) => ["planned", "running", "measuring"].includes(experiment.status)).length;
   const performance = input.context.strategyPerformance?.find((item) => item.strategyKey === profile.strategyKey);
+  const relevantRules = (input.context.rules ?? []).filter((rule) => tokenOverlap(text, `${rule.category} ${rule.ruleText}`) > 0);
+  const avoidRules = relevantRules.filter((rule) => /avoid|never|do not|不要|避免|禁止/i.test(rule.ruleText));
   const suppressed = Boolean(performance?.suppressedUntil && new Date(performance.suppressedUntil) > new Date());
   const strategyWeight = performance?.weight ?? 1;
   const goalText = `${input.goal?.title ?? ""} ${input.goal?.targetMetric ?? ""}`;
@@ -142,10 +146,10 @@ export function scoreCompanyDecision(input: {
     riskFit: profile.riskLevel === 1 ? 10 : profile.riskLevel === 2 ? 6 : 2,
     channelCapacity: activeInChannel === 0 ? 5 : Math.max(-10, 5 - activeInChannel * 5),
   };
-  const rawScore = Object.values(breakdown).reduce((total, value) => total + value, 0);
+  const rawScore = Object.values(breakdown).reduce((total, value) => total + value, 0) - Math.min(20, avoidRules.length * 10);
   const weightedScore = Math.round(rawScore * strategyWeight);
   const score = suppressed ? Math.min(15, Math.max(0, weightedScore)) : Math.max(0, Math.min(100, weightedScore));
-  const rationale = `${suppressed ? `Suppressed because ${profile.strategyKey} has repeated failures and remains paused until ${performance?.suppressedUntil?.slice(0, 10)}. ` : ""}Prioritized for ${input.goal?.title ? `the active goal “${input.goal.title}”` : "the current growth objective"} with a ${score}/100 decision score and ${strategyWeight.toFixed(2)} strategy weight. Evidence contributed ${breakdown.evidence} points, goal alignment ${breakdown.goalAlignment}, operating knowledge ${breakdown.knowledgeFit}, and prior results ${breakdown.historicalPerformance >= 0 ? "+" : ""}${breakdown.historicalPerformance}. The ${profile.channel} path is estimated ${profile.estimatedCost} cost at risk level ${profile.riskLevel}; ${activeInChannel ? `${activeInChannel} similar active experiment(s) reduced channel capacity` : "no overlapping active experiment was found"}.`;
+  const rationale = `${suppressed ? `Suppressed because ${profile.strategyKey} has repeated failures and remains paused until ${performance?.suppressedUntil?.slice(0, 10)}. ` : ""}${avoidRules.length ? `${avoidRules.length} Founder rule(s) reduced this option's score. ` : ""}Prioritized for ${input.goal?.title ? `the active goal “${input.goal.title}”` : "the current growth objective"} with a ${score}/100 decision score and ${strategyWeight.toFixed(2)} strategy weight. Evidence contributed ${breakdown.evidence} points, goal alignment ${breakdown.goalAlignment}, operating knowledge ${breakdown.knowledgeFit}, and prior results ${breakdown.historicalPerformance >= 0 ? "+" : ""}${breakdown.historicalPerformance}. The ${profile.channel} path is estimated ${profile.estimatedCost} cost at risk level ${profile.riskLevel}; ${activeInChannel ? `${activeInChannel} similar active experiment(s) reduced channel capacity` : "no overlapping active experiment was found"}.`;
   return { score, ...profile, matchingKnowledge, supportingLessons, suppressingLessons, suppressed, strategyWeight, breakdown, rationale };
 }
 
